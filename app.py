@@ -46,9 +46,10 @@ def webhook():
     conn.execute("""CREATE TABLE IF NOT EXISTS expenses
                     (user_id TEXT, item TEXT, amount REAL, date TEXT)""")
 
-    today = datetime.now().strftime('%Y-%m-%d')
-    today_display = datetime.now().strftime('%d-%m-%Y')
-    month_prefix = datetime.now().strftime('%Y-%m')
+    today = datetime.now()
+    today_str = today.strftime('%Y-%m-%d')
+    today_display = today.strftime('%d-%m-%Y')
+    month_prefix = today.strftime('%Y-%m')
 
     # export
     if msg.lower().strip() == "export":
@@ -77,21 +78,29 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: clear 02-06-2025")
             return "invalid clear date", 200
 
-    # add expense
-    try:
-        item, amount = msg.rsplit(" ", 1)
-        amount = float(amount)
-    except:
+    # เพิ่มหลายรายการ
+    lines = msg.strip().split("\n")
+    records = []
+    for line in lines:
+        try:
+            item, amount = line.rsplit(" ", 1)
+            amount = float(amount)
+            records.append((item.strip(), amount))
+        except:
+            continue
+
+    if not records:
         reply_text(reply_token, "❌ รูปแบบไม่ถูกต้อง เช่น: กาแฟ 50")
         return "format error", 200
 
-    conn.execute("INSERT INTO expenses VALUES (?, ?, ?, ?)",
-                 (user_id, item, amount, today))
+    for item, amount in records:
+        conn.execute("INSERT INTO expenses VALUES (?, ?, ?, ?)",
+                     (user_id, item, amount, today_str))
     conn.commit()
 
     rows = conn.execute(
         "SELECT item, amount FROM expenses WHERE user_id=? AND date=?",
-        (user_id, today)).fetchall()
+        (user_id, today_str)).fetchall()
 
     month_total = conn.execute(
         "SELECT SUM(amount) FROM expenses WHERE user_id=? AND date LIKE ?",
