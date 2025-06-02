@@ -52,6 +52,16 @@ def webhook():
     today_display = today.strftime('%d-%m-%Y')
     month_prefix = today.strftime('%Y-%m')
 
+    # ===== RESET DB =====
+    if msg.lower().strip() == "resetdb":
+        try:
+            conn.execute("DROP TABLE IF EXISTS expenses")
+            conn.commit()
+            reply_text(reply_token, "⚠️ ล้างข้อมูลทั้งระบบเรียบร้อยแล้ว (ทุกคน)")
+        except Exception as e:
+            reply_text(reply_token, f"❌ ล้างไม่สำเร็จ: {e}")
+        return "database reset", 200
+
     # ===== EXPORT =====
     if msg.lower().strip() == "export":
         export_url = "https://line-expense-bot.onrender.com/export"
@@ -62,7 +72,7 @@ def webhook():
     if msg.lower().strip() == "clear":
         conn.execute("DELETE FROM expenses WHERE user_id=?", (user_id,))
         conn.commit()
-        reply_text(reply_token, "🧹 เคลียร์รายจ่ายทั้งหมดเรียบร้อยแล้ว")
+        reply_text(reply_token, "🩱 เคลียรายจ่ายทั้งหมดเรียบร้อยแล้ว")
         return "cleared all", 200
 
     # ===== CLEAR BY DATE =====
@@ -73,7 +83,7 @@ def webhook():
             db_date = date_obj.strftime("%Y-%m-%d")
             conn.execute("DELETE FROM expenses WHERE user_id=? AND date=?", (user_id, db_date))
             conn.commit()
-            reply_text(reply_token, f"🧹 ลบรายจ่ายวันที่ {input_date} แล้ว")
+            reply_text(reply_token, f"🩱 ลบรายจ่ายวันที่ {input_date} แล้ว")
             return "cleared specific date", 200
         except:
             reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: clear 02-06-2025")
@@ -101,7 +111,7 @@ def webhook():
         df_user = df[df["user_id"] == user_id]
 
         if df_user.empty:
-            reply_text(reply_token, "📭 ยังไม่มีรายจ่ายในเดือนนี้")
+            reply_text(reply_token, "📍 ยังไม่มีรายจ่ายในเดือนนี้")
             return "no data", 200
 
         summary = df_user.groupby("week")["amount"].sum()
