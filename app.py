@@ -33,13 +33,7 @@ def webhook():
     except:
         return "ignored", 200
 
-    try:
-        item, amount = msg.rsplit(" ", 1)
-        amount = float(amount)
-    except:
-        reply_text(reply_token, "❌ รูปแบบไม่ถูกต้อง เช่น: กาแฟ 50")
-        return "format error", 200
-
+    # เตรียมเชื่อมต่อฐานข้อมูล
     conn = sqlite3.connect("expenses.db")
     conn.execute("""CREATE TABLE IF NOT EXISTS expenses
                     (user_id TEXT, item TEXT, amount REAL, date TEXT)""")
@@ -47,8 +41,18 @@ def webhook():
     today = datetime.now().strftime('%Y-%m-%d')
     month_prefix = datetime.now().strftime('%Y-%m')
 
-    conn.execute("INSERT INTO expenses VALUES (?, ?, ?, ?)",
-                 (user_id, item, amount, today))
+    success_count = 0
+    lines = msg.strip().split("\n")
+    for line in lines:
+        try:
+            item, amount = line.rsplit(" ", 1)
+            amount = float(amount)
+            conn.execute("INSERT INTO expenses VALUES (?, ?, ?, ?)",
+                         (user_id, item.strip(), amount, today))
+            success_count += 1
+        except:
+            pass  # ข้ามบรรทัดที่พิมพ์ผิด
+
     conn.commit()
 
     rows = conn.execute(
@@ -62,20 +66,15 @@ def webhook():
     conn.close()
 
     total_today = sum(r[1] for r in rows)
-    lines = [f"📅 รายจ่ายวันนี้ ({today})"]
+    response_lines = [f"📅 รายจ่ายวันนี้ ({today})"]
     for r in rows:
-        lines.append(f"- {r[0]}: {r[1]:,.0f} บาท")
-    lines.append(f"💸 รวมวันนี้: {total_today:,.0f} บาท")
-    lines.append(f"🗓 รวมเดือนนี้: {month_total:,.0f} บาท")
+        response_lines.append(f"- {r[0]}: {r[1]:,.0f} บาท")
+    response_lines.append(f"💸 รวมวันนี้: {total_today:,.0f} บาท")
+    response_lines.append(f"🗓 รวมเดือนนี้: {month_total:,.0f} บาท")
 
-    reply_text(reply_token, "\n".join(lines))
+    reply_text(reply_token, "\n".join(response_lines))
     return "OK", 200
 
 @app.route("/")
 def index():
-    return "✅ LINE Expense Bot is running!"
-
-# ✅ ส่วนสำคัญที่ทำให้ Render รันได้
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    return "<h2>✅ LINE Expense Bot is running!</h2>"
