@@ -33,7 +33,6 @@ def webhook():
     except:
         return "ignored", 200
 
-    # เตรียมเชื่อมต่อฐานข้อมูล
     conn = sqlite3.connect("expenses.db")
     conn.execute("""CREATE TABLE IF NOT EXISTS expenses
                     (user_id TEXT, item TEXT, amount REAL, date TEXT)""")
@@ -41,17 +40,19 @@ def webhook():
     today = datetime.now().strftime('%Y-%m-%d')
     month_prefix = datetime.now().strftime('%Y-%m')
 
-    success_count = 0
-    lines = msg.strip().split("\n")
-    for line in lines:
+    success = 0
+    failed_lines = []
+    input_lines = msg.strip().split("\n")
+
+    for line in input_lines:
         try:
             item, amount = line.rsplit(" ", 1)
             amount = float(amount)
             conn.execute("INSERT INTO expenses VALUES (?, ?, ?, ?)",
                          (user_id, item.strip(), amount, today))
-            success_count += 1
+            success += 1
         except:
-            pass  # ข้ามบรรทัดที่พิมพ์ผิด
+            failed_lines.append(line)
 
     conn.commit()
 
@@ -71,6 +72,11 @@ def webhook():
         response_lines.append(f"- {r[0]}: {r[1]:,.0f} บาท")
     response_lines.append(f"💸 รวมวันนี้: {total_today:,.0f} บาท")
     response_lines.append(f"🗓 รวมเดือนนี้: {month_total:,.0f} บาท")
+
+    if failed_lines:
+        response_lines.append("\n⚠️ ไม่สามารถบันทึกได้:")
+        for l in failed_lines:
+            response_lines.append(f"- {l}")
 
     reply_text(reply_token, "\n".join(response_lines))
     return "OK", 200
