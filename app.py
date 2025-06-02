@@ -84,3 +84,7 @@ def webhook():
 @app.route("/")
 def index():
     return "<h2>✅ LINE Expense Bot is running!</h2>"
+
+# ✅ แก้จุดสำคัญตรงนี้เพื่อให้ Render เห็นพอร์ต
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
