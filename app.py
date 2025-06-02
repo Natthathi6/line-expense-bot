@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 import requests
 from openpyxl import Workbook
+import pandas as pd
 
 app = Flask(__name__)
 LINE_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
@@ -51,20 +52,20 @@ def webhook():
     today_display = today.strftime('%d-%m-%Y')
     month_prefix = today.strftime('%Y-%m')
 
-    # export
+    # ===== EXPORT =====
     if msg.lower().strip() == "export":
         export_url = "https://line-expense-bot.onrender.com/export"
         reply_text(reply_token, f"📁 ดาวน์โหลดรายจ่าย:\n{export_url}")
         return "sent export link", 200
 
-    # clear all
+    # ===== CLEAR ALL =====
     if msg.lower().strip() == "clear":
         conn.execute("DELETE FROM expenses WHERE user_id=?", (user_id,))
         conn.commit()
         reply_text(reply_token, "🧹 เคลียร์รายจ่ายทั้งหมดเรียบร้อยแล้ว")
         return "cleared all", 200
 
-    # clear 02-06-2025
+    # ===== CLEAR BY DATE =====
     if msg.lower().startswith("clear "):
         try:
             input_date = msg[6:].strip()
@@ -78,7 +79,46 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: clear 02-06-2025")
             return "invalid clear date", 200
 
-    # เพิ่มหลายรายการ
+    # ===== WEEKLY REPORT =====
+    if msg.lower().strip() == "weekly":
+        df = pd.read_sql_query("SELECT * FROM expenses", conn)
+        df["date"] = pd.to_datetime(df["date"])
+        latest_month = df["date"].dt.to_period("M").max()
+        df = df[df["date"].dt.to_period("M") == latest_month]
+
+        def classify_week(d):
+            day = d.day
+            if day <= 7:
+                return "Week 1 (1-7)"
+            elif day <= 14:
+                return "Week 2 (8-14)"
+            elif day <= 21:
+                return "Week 3 (15-21)"
+            else:
+                return "Week 4 (22-end)"
+
+        df["week"] = df["date"].apply(classify_week)
+        df_user = df[df["user_id"] == user_id]
+
+        if df_user.empty:
+            reply_text(reply_token, "📭 ยังไม่มีรายจ่ายในเดือนนี้")
+            return "no data", 200
+
+        summary = df_user.groupby("week")["amount"].sum()
+        total = df_user["amount"].sum()
+        latest_month_str = df_user["date"].dt.strftime("%B %Y").iloc[0]
+        name = user_map.get(user_id, "คุณ")
+
+        lines = [f"📊 รายจ่ายเดือน {latest_month_str} ของ {name}"]
+        for week in ["Week 1 (1-7)", "Week 2 (8-14)", "Week 3 (15-21)", "Week 4 (22-end)"]:
+            baht = summary.get(week, 0)
+            lines.append(f"• {week}: {baht:,.0f} บาท")
+        lines.append(f"\n💰 รวมทั้งเดือน: {total:,.0f} บาท")
+
+        reply_text(reply_token, "\n".join(lines))
+        return "weekly summary", 200
+
+    # ===== ADD EXPENSES =====
     lines = msg.strip().split("\n")
     records = []
     for line in lines:
