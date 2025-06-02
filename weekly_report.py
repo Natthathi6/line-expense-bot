@@ -41,12 +41,12 @@ for user_id, name in USER_MAP.items():
     total = df_user["amount"].sum()
 
     text_lines = [
-        f"📊 รายจ่ายเดือน {latest_month.strftime('%B %Y')} ของ {name}"
+        f"\U0001f4ca รายจ่ายเดือน {latest_month.strftime('%B %Y')} ของ {name}"
     ]
     for week in ["Week 1 (1-7)", "Week 2 (8-14)", "Week 3 (15-21)", "Week 4 (22-end)"]:
         baht = summary.get(week, 0)
         text_lines.append(f"• {week}: {baht:,.0f} บาท")
-    text_lines.append(f"\n💰 รวมทั้งเดือน: {total:,.0f} บาท")
+    text_lines.append(f"\n\U0001f4b0 รวมทั้งเดือน: {total:,.0f} บาท")
 
     payload = {"to": user_id, "messages": [{"type": "text", "text": "\n".join(text_lines)}]}
     headers = {
