@@ -43,7 +43,7 @@ def webhook():
     except:
         return "ignored", 200
 
-    conn = sqlite3.connect("expenses.db")
+    conn = sqlite3.connect("runtime.db")
     conn.execute("""CREATE TABLE IF NOT EXISTS expenses
                     (user_id TEXT, item TEXT, amount REAL, date TEXT)""")
 
@@ -170,7 +170,7 @@ def webhook():
 
 @app.route("/export", methods=["GET"])
 def export_excel():
-    conn = sqlite3.connect("expenses.db")
+    conn = sqlite3.connect("runtime.db")
     rows = conn.execute("SELECT user_id, item, amount, date FROM expenses").fetchall()
     conn.close()
 
