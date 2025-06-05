@@ -11,7 +11,7 @@ if today not in [8, 15, 22, 1]:
     exit()
 
 # --- ตั้งค่า ---
-DB_PATH = "runtime.db"  # <- เปลี่ยนชื่อให้ตรงกับ app.py
+DB_PATH = "runtime.db"
 LINE_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 USER_MAP = {
     "Uf2299afc5c6a03b031ac70eefc750259": "Choy",
@@ -50,12 +50,18 @@ for user_id, name in USER_MAP.items():
     summary = df_user.groupby("week")["amount"].sum()
     total = df_user["amount"].sum()
 
-    text_lines = [
-        f"📊 รายจ่ายเดือน {latest_month.strftime('%B %Y')} ของ {name}"
-    ]
+    text_lines = [f"📊 รายจ่ายเดือน {latest_month.strftime('%B %Y')} ของ {name}"]
+
     for week in ["Week 1 (1-7)", "Week 2 (8-14)", "Week 3 (15-21)", "Week 4 (22-end)"]:
         baht = summary.get(week, 0)
         text_lines.append(f"• {week}: {baht:,.0f} บาท")
+
+        # เพิ่ม: แยกหมวดในแต่ละสัปดาห์
+        df_week = df_user[df_user["week"] == week]
+        cat_summary = df_week.groupby("category")["amount"].sum().sort_values(ascending=False)
+        for cat, amt in cat_summary.items():
+            text_lines.append(f"    - {cat}: {amt:,.0f} บาท")
+
     text_lines.append(f"\n💰 รวมทั้งเดือน: {total:,.0f} บาท")
 
     payload = {
