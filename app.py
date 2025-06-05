@@ -52,46 +52,6 @@ def webhook():
     today_display = today.strftime('%d-%m-%Y')
     month_prefix = today.strftime('%Y-%m')
 
-    # ===== WEEKLY REPORT =====
-    if msg.lower().strip() == "weekly":
-        df = pd.read_sql_query("SELECT * FROM expenses", conn)
-        conn.close()
-        df["date"] = pd.to_datetime(df["date"])
-        latest_month = df["date"].dt.to_period("M").max()
-        df = df[df["date"].dt.to_period("M") == latest_month]
-
-        def classify_week(d):
-            day = d.day
-            if day <= 7:
-                return "Week 1 (1-7)"
-            elif day <= 14:
-                return "Week 2 (8-14)"
-            elif day <= 21:
-                return "Week 3 (15-21)"
-            else:
-                return "Week 4 (22-end)"
-
-        df["week"] = df["date"].apply(classify_week)
-        df_user = df[df["user_id"] == user_id]
-
-        if df_user.empty:
-            reply_text(reply_token, "📍 ยังไม่มีรายจ่ายในเดือนนี้")
-            return "no data", 200
-
-        summary = df_user.groupby("week")["amount"].sum()
-        total = df_user["amount"].sum()
-        latest_month_str = df_user["date"].dt.strftime("%B %Y").iloc[0]
-        name = get_user_name(user_id)
-
-        lines = [f"📊 รายจ่ายเดือน {latest_month_str} ของ {name}"]
-        for week in ["Week 1 (1-7)", "Week 2 (8-14)", "Week 3 (15-21)", "Week 4 (22-end)"]:
-            baht = summary.get(week, 0)
-            lines.append(f"• {week}: {baht:,.0f} บาท")
-        lines.append(f"\n💰 รวมทั้งเดือน: {total:,.0f} บาท")
-
-        reply_text(reply_token, "\n".join(lines))
-        return "weekly summary", 200
-
     if msg.lower().strip() == "export":
         export_url = "https://line-expense-bot.onrender.com/export"
         reply_text(reply_token, f"\U0001F4C1 ดาวน์โหลดรายจ่าย:\n{export_url}")
@@ -115,7 +75,6 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: clear 02-06-2025")
             return "invalid clear date", 200
 
-    # ===== ADD EXPENSES =====
     lines = msg.strip().split("\n")
     records = []
     for line in lines:
@@ -153,7 +112,7 @@ def webhook():
     total_today = sum(r[1] for r in rows)
     lines = [f"📅 รายจ่ายวันนี้ ({today_display})"]
     for r in rows:
-        if r[2] != "-":
+        if r[2] and r[2] != "-":
             lines.append(f"- {r[0]}: {r[1]:,.0f} บาท ({r[2]})")
         else:
             lines.append(f"- {r[0]}: {r[1]:,.0f} บาท")
