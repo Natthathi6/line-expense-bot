@@ -45,14 +45,13 @@ def webhook():
 
     conn = sqlite3.connect("runtime.db")
     conn.execute("""CREATE TABLE IF NOT EXISTS expenses
-                    (user_id TEXT, item TEXT, amount REAL, date TEXT)""")
+                    (user_id TEXT, item TEXT, amount REAL, date TEXT, category TEXT)""")
 
     today = datetime.now()
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
     month_prefix = today.strftime('%Y-%m')
 
-    # ===== RESET DB =====
     if msg.lower().strip() == "resetdb":
         try:
             conn.execute("DROP TABLE IF EXISTS expenses")
@@ -62,20 +61,17 @@ def webhook():
             reply_text(reply_token, f"❌ ล้างไม่สำเร็จ: {e}")
         return "database reset", 200
 
-    # ===== EXPORT =====
     if msg.lower().strip() == "export":
         export_url = "https://line-expense-bot.onrender.com/export"
         reply_text(reply_token, f"📁 ดาวน์โหลดรายจ่าย:\n{export_url}")
         return "sent export link", 200
 
-    # ===== CLEAR ALL =====
     if msg.lower().strip() == "clear":
         conn.execute("DELETE FROM expenses WHERE user_id=?", (user_id,))
         conn.commit()
         reply_text(reply_token, "🩱 เคลียรายจ่ายทั้งหมดเรียบร้อยแล้ว")
         return "cleared all", 200
 
-    # ===== CLEAR BY DATE =====
     if msg.lower().startswith("clear "):
         try:
             input_date = msg[6:].strip()
@@ -89,7 +85,6 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: clear 02-06-2025")
             return "invalid clear date", 200
 
-    # ===== WEEKLY REPORT =====
     if msg.lower().strip() == "weekly":
         df = pd.read_sql_query("SELECT * FROM expenses", conn)
         df["date"] = pd.to_datetime(df["date"])
@@ -128,14 +123,21 @@ def webhook():
         reply_text(reply_token, "\n".join(lines))
         return "weekly summary", 200
 
-    # ===== ADD EXPENSES =====
     lines = msg.strip().split("\n")
     records = []
     for line in lines:
+        parts = line.strip().rsplit(" ", 2)
+        if len(parts) == 3:
+            item, amount, category = parts
+        elif len(parts) == 2:
+            item, amount = parts
+            category = "ไม่ระบุ"
+        else:
+            continue
+
         try:
-            item, amount = line.rsplit(" ", 1)
             amount = float(amount)
-            records.append((item.strip(), amount))
+            records.append((item.strip(), amount, category.strip()))
         except:
             continue
 
@@ -143,9 +145,9 @@ def webhook():
         reply_text(reply_token, "❌ รูปแบบไม่ถูกต้อง เช่น: กาแฟ 50")
         return "format error", 200
 
-    for item, amount in records:
-        conn.execute("INSERT INTO expenses VALUES (?, ?, ?, ?)",
-                     (user_id, item, amount, today_str))
+    for item, amount, category in records:
+        conn.execute("INSERT INTO expenses VALUES (?, ?, ?, ?, ?)",
+                     (user_id, item, amount, today_str, category))
     conn.commit()
 
     rows = conn.execute(
@@ -171,17 +173,17 @@ def webhook():
 @app.route("/export", methods=["GET"])
 def export_excel():
     conn = sqlite3.connect("runtime.db")
-    rows = conn.execute("SELECT user_id, item, amount, date FROM expenses").fetchall()
+    rows = conn.execute("SELECT user_id, item, amount, date, category FROM expenses").fetchall()
     conn.close()
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Expenses"
-    ws.append(["User", "Item", "Amount", "Date"])
-    for user_id, item, amount, date in rows:
+    ws.append(["User", "Item", "Amount", "Date", "Category"])
+    for user_id, item, amount, date, category in rows:
         user = user_map.get(user_id, user_id)
         show_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
-        ws.append([user, item, amount, show_date])
+        ws.append([user, item, amount, show_date, category])
 
     file_path = "expenses_export.xlsx"
     wb.save(file_path)
