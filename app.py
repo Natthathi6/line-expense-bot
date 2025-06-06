@@ -103,7 +103,9 @@ def webhook():
 
     conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
     conn.commit()
-    df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
+
+    # โหลดข้อมูลทั้งหมดในวันนี้เพื่อรวมรายจ่ายทั้งวัน
+    df_today = pd.read_sql_query("SELECT * FROM records WHERE user_id=? AND date=?", conn, params=(user_id, today_str))
 
     if all(r[4] == "income" for r in records):
         summary = {
@@ -114,7 +116,7 @@ def webhook():
             "เงินสด": 0,
             "เครดิต": 0
         }
-        for _, item, amount, _, _, _ in records:
+        for _, item, amount, _, _, _ in df_today.itertuples(index=False):
             if "รวม" in item:
                 summary["รวม"] += amount
             elif "อาหาร" in item:
@@ -128,8 +130,8 @@ def webhook():
             elif "เครดิต" in item:
                 summary["เครดิต"] += amount
 
-        def format_amt(amt):
-            return f"{amt:,.0f}" if amt.is_integer() else f"{amt:,.2f}"
+        def format_amt(a):
+            return f"{a:,.1f}" if a % 1 else f"{int(a):,}"
 
         reply = [
             f"📅 บันทึกวันที่ {today_display}",
@@ -144,9 +146,10 @@ def webhook():
         reply_text(reply_token, "\n".join(reply))
         return "OK", 200
     else:
-        total = df["amount"].sum()
+        df_exp = df_today[df_today["type"] == "expense"]
+        total = df_exp["amount"].sum()
         reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
-        for _, row in df.iterrows():
+        for _, row in df_exp.iterrows():
             if row["category"] != "-":
                 reply.append(f"- {row['item']}: {row['amount']:.0f} บาท ({row['category']})")
             else:
