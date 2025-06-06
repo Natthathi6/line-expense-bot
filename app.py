@@ -1,4 +1,3 @@
-
 from flask import Flask, request, send_file
 import os
 import sqlite3
@@ -58,40 +57,24 @@ def webhook():
     today_display = today.strftime('%d-%m-%Y')
     month_prefix = today.strftime('%Y-%m')
 
-    # --- EXPORT ---
     if msg.lower().strip() == "export":
         export_url = "https://line-expense-bot.onrender.com/export"
         reply_text(reply_token, f"📁 ดาวน์โหลดข้อมูล:
 {export_url}")
         return "export link sent", 200
 
-    # --- DELETE INCOME ---
     if msg.lower().strip().startswith("del income "):
         try:
             input_date = msg.strip()[11:]
             db_date = datetime.strptime(input_date, "%d-%m-%Y").strftime("%Y-%m-%d")
             conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type='income'", (user_id, db_date))
             conn.commit()
-            reply_text(reply_token, f"🧹 ลบรายได้วันที่ {input_date} แล้ว")
+            reply_text(reply_token, f"🩹 ลบรายได้วันที่ {input_date} แล้ว")
             return "income deleted", 200
         except:
             reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: del income 02-06-2025")
             return "invalid date", 200
 
-    # --- DELETE EXPENSE ---
-    if msg.lower().strip().startswith("del expense "):
-        try:
-            input_date = msg.strip()[12:]
-            db_date = datetime.strptime(input_date, "%d-%m-%Y").strftime("%Y-%m-%d")
-            conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type='expense'", (user_id, db_date))
-            conn.commit()
-            reply_text(reply_token, f"🧹 ลบรายจ่ายวันที่ {input_date} แล้ว")
-            return "expense deleted", 200
-        except:
-            reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: del expense 02-06-2025")
-            return "invalid date", 200
-
-    # --- WEEKLY REPORT ---
     if msg.lower().strip() == "weekly รายจ่าย":
         df = pd.read_sql_query("SELECT * FROM records WHERE type='expense'", conn)
         df["date"] = pd.to_datetime(df["date"])
@@ -113,53 +96,12 @@ def webhook():
         for week in ["Week 1", "Week 2", "Week 3", "Week 4", "Week 5"]:
             baht = summary.get(week, 0)
             lines.append(f"• {week}: {baht:,.0f} บาท")
-        lines.append(f"
-💰 รวมทั้งเดือน: {total:,.0f} บาท")
+        lines.append(f"\n💰 รวมทั้งเดือน: {total:,.0f} บาท")
 
-        reply_text(reply_token, "
-".join(lines))
+        reply_text(reply_token, "\n".join(lines))
         return "weekly summary", 200
 
-    # --- CUSTOM DATE INCOME SUMMARY ---
-    if msg.lower().startswith("รายได้รวม "):
-        try:
-            date_range = msg.strip()[10:].replace(" ", "")
-            d1, d2 = date_range.split("-")
-            d1 = datetime.strptime(d1 + "/2025", "%d/%m/%Y")
-            d2 = datetime.strptime(d2 + "/2025", "%d/%m/%Y")
-            d1_str, d2_str = d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
-
-            df = pd.read_sql_query("SELECT * FROM records WHERE type='income'", conn)
-            df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
-
-            if df.empty:
-                reply_text(reply_token, "📍 ไม่มีรายได้ในช่วงที่ระบุ")
-                return "no income", 200
-
-            total = df["amount"].sum()
-            by_cat = df.groupby("category")["amount"].sum()
-            by_type = df.groupby("item")["amount"].sum()
-
-            lines = [f"💵 รายได้ {d1.strftime('%d/%m')}–{d2.strftime('%d/%m')}"]
-            for cat, amt in by_cat.items():
-                lines.append(f"- รายได้{cat}: {amt:,.0f} บาท")
-            lines.append("")
-            for t, amt in by_type.items():
-                lines.append(f"• {t}: {amt:,.0f} บาท")
-            lines.append(f"
-💰 รวม: {total:,.0f} บาท")
-
-            reply_text(reply_token, "
-".join(lines))
-            return "income summary", 200
-        except Exception as e:
-            reply_text(reply_token, f"❌ รูปแบบผิด เช่น: รายได้รวม 1-5/06/2025")
-            return "parse error", 200
-
-    # --- PARSE NEW RECORDS ---
-    lines = msg.strip().split("
-")
+    lines = msg.strip().split("\n")
     records = []
     for line in lines:
         try:
@@ -193,8 +135,7 @@ def webhook():
         label = "รายได้" if t == "income" else "รายจ่าย"
         reply.append(f"• {label}{f'({c})' if c != '-' else ''}: {a:,.0f} บาท")
 
-    reply_text(reply_token, "
-".join(reply))
+    reply_text(reply_token, "\n".join(reply))
     return "OK", 200
 
 @app.route("/export", methods=["GET"])
