@@ -72,63 +72,6 @@ def webhook():
         conn.close()
         return send_file(file_path, as_attachment=True)
 
-    # --- SUMMARY BY DATE RANGE ---
-    if msg.lower().startswith("รายได้รวม ") and "/" in msg:
-        try:
-            parts = msg.strip()[10:].split("/")
-            day_range, month, year = parts[0], parts[1], parts[2]
-            d1_str, d2_str = day_range.split("-")
-            d1 = datetime.strptime(f"{d1_str.zfill(2)}/{month.zfill(2)}/{year}", "%d/%m/%Y")
-            d2 = datetime.strptime(f"{d2_str.zfill(2)}/{month.zfill(2)}/{year}", "%d/%m/%Y")
-
-            df = pd.read_sql_query("SELECT * FROM records WHERE type='income'", conn)
-            df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
-
-            if df.empty:
-                reply_text(reply_token, "📍 ไม่มีรายได้ในช่วงที่ระบุ")
-                return "no income", 200
-
-            summary = {
-                "รวม": 0,
-                "อาหาร": 0,
-                "เครื่องดื่ม": 0,
-                "โอน": 0,
-                "เงินสด": 0,
-                "เครดิต": 0
-            }
-            for _, row in df.iterrows():
-                item = row["item"]
-                amount = row["amount"]
-                if "รวม" in item:
-                    summary["รวม"] += amount
-                elif "อาหาร" in item:
-                    summary["อาหาร"] += amount
-                elif "เครื่องดื่ม" in item:
-                    summary["เครื่องดื่ม"] += amount
-                elif "โอน" in item:
-                    summary["โอน"] += amount
-                elif "เงินสด" in item:
-                    summary["เงินสด"] += amount
-                elif "เครดิต" in item:
-                    summary["เครดิต"] += amount
-
-            reply = [
-                f"📅 รายได้ระหว่างวันที่ {d1.strftime('%d/%m/%Y')} - {d2.strftime('%d/%m/%Y')}",
-                f"💵 รายได้รวม: {summary['รวม']:,} บาท",
-                f"🍟 รายได้อาหาร: {summary['อาหาร']:,} บาท",
-                f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,} บาท",
-                "",
-                f"📌 โอน: {summary['โอน']:,} บาท",
-                f"📌 เงินสด: {summary['เงินสด']:,} บาท",
-                f"📌 เครดิต: {summary['เครดิต']:,} บาท"
-            ]
-            reply_text(reply_token, "\n".join(reply))
-            return "OK", 200
-        except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายได้รวม 1-6/06/2025")
-            return "parse error", 200
-
     # --- PARSE RECORD ---
     lines = msg.strip().split("\n")
     records = []
@@ -164,12 +107,12 @@ def webhook():
 
     if all(r[4] == "income" for r in records):
         summary = {
-            "รวม": 0,
-            "อาหาร": 0,
-            "เครื่องดื่ม": 0,
-            "โอน": 0,
-            "เงินสด": 0,
-            "เครดิต": 0
+            "รวม": 0.0,
+            "อาหาร": 0.0,
+            "เครื่องดื่ม": 0.0,
+            "โอน": 0.0,
+            "เงินสด": 0.0,
+            "เครดิต": 0.0
         }
         for _, item, amount, _, _, _ in records:
             if "รวม" in item:
@@ -184,7 +127,6 @@ def webhook():
                 summary["เงินสด"] += amount
             elif "เครดิต" in item:
                 summary["เครดิต"] += amount
-
         reply = [
             f"📅 บันทึกวันที่ {today_display}",
             f"💵 รายได้รวม: {summary['รวม']:,} บาท",
