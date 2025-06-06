@@ -56,56 +56,100 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
-    # --- PARSE NEW RECORDS ---
+    # --- EXPORT ---
+    if msg.lower().strip() == "export":
+        rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Records"
+        ws.append(["User", "Item", "Amount", "Category", "Type", "Date"])
+        for user_id, item, amount, category, dtype, date in rows:
+            user = get_user_name(user_id)
+            show_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
+            ws.append([user, item, amount, category, dtype, show_date])
+        file_path = "records_export.xlsx"
+        wb.save(file_path)
+        conn.close()
+        return send_file(file_path, as_attachment=True)
+
+    # --- PARSE RECORD ---
     lines = msg.strip().split("\n")
     records = []
     for line in lines:
         try:
-            parts = line.strip().rsplit(" ", 3)
-            if len(parts) == 4:
-                item, amount, category, tag = parts
-            elif len(parts) == 3:
-                item, amount, tag = parts
-                category = "-"
+            parts = line.rsplit(" ", 2)
+            if len(parts) == 3:
+                item, amount, final = parts
+                if final == "รายได้":
+                    type_ = "income"
+                    category = "-"
+                else:
+                    item, amount, category = parts
+                    type_ = "expense"
             elif len(parts) == 2:
                 item, amount = parts
+                type_ = "expense"
                 category = "-"
-                tag = "รายจ่าย"
             else:
                 continue
-
-            amount = float(amount)
-            tag = tag.strip().lower()
-            if tag == "รายได้":
-                record_type = "income"
-            elif tag == "รายจ่าย":
-                record_type = "expense"
-            else:
-                continue
-            records.append((user_id, item.strip(), amount, category.strip(), record_type, today_str))
+            amount = float(amount.replace(",", ""))
+            records.append((user_id, item.strip(), amount, category.strip(), type_, today_str))
         except:
             continue
 
     if not records:
         reply_text(reply_token, "❌ รูปแบบผิด เช่น: ข้าว 50 อาหาร หรือ รายได้รวม 10000 รายได้")
-        return "bad format", 200
+        return "invalid format", 200
 
     conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
     conn.commit()
-    conn.close()
-
     df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
-    reply_lines = [f"📅 บันทึกวันที่ {today_display}"]
 
-    if not df[df["type"] == "expense"].empty:
-        total_exp = df[df["type"] == "expense"]["amount"].sum()
-        reply_lines.append(f"🧾 รายจ่ายรวม: {total_exp:,.0f} บาท")
-    if not df[df["type"] == "income"].empty:
-        total_inc = df[df["type"] == "income"]["amount"].sum()
-        reply_lines.append(f"💵 รายได้รวม: {total_inc:,.0f} บาท")
-
-    reply_text(reply_token, "\n".join(reply_lines))
-    return "OK", 200
+    if all(r[4] == "income" for r in records):
+        summary = {
+            "รวม": 0,
+            "อาหาร": 0,
+            "เครื่องดื่ม": 0,
+            "โอน": 0,
+            "เงินสด": 0,
+            "เครดิต": 0
+        }
+        for _, item, amount, _, _, _ in records:
+            if "รวม" in item:
+                summary["รวม"] += amount
+            elif "อาหาร" in item:
+                summary["อาหาร"] += amount
+            elif "เครื่องดื่ม" in item:
+                summary["เครื่องดื่ม"] += amount
+            elif "โอน" in item:
+                summary["โอน"] += amount
+            elif "เงินสด" in item:
+                summary["เงินสด"] += amount
+            elif "เครดิต" in item:
+                summary["เครดิต"] += amount
+        reply = [
+            f"📅 บันทึกวันที่ {today_display}",
+            f"💵 รายได้รวม: {summary['รวม']:,} บาท",
+            f"🍟 รายได้อาหาร: {summary['อาหาร']:,} บาท",
+            f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,} บาท",
+          
+            f"📌 โอน: {summary['โอน']:,} บาท",
+            f"📌 เงินสด: {summary['เงินสด']:,} บาท",
+            f"📌 เครดิต: {summary['เครดิต']:,} บาท"
+        ]
+        reply_text(reply_token, "\n".join(reply))
+        return "OK", 200
+    else:
+        total = df["amount"].sum()
+        reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
+        for _, row in df.iterrows():
+            if row["category"] != "-":
+                reply.append(f"- {row['item']}: {row['amount']:.0f} บาท ({row['category']})")
+            else:
+                reply.append(f"- {row['item']}: {row['amount']:.0f} บาท")
+        reply.append(f"\n💸 รวมวันนี้: {total:,.0f} บาท")
+        reply_text(reply_token, "\n".join(reply))
+        return "OK", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
