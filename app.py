@@ -72,6 +72,54 @@ def webhook():
         conn.close()
         return send_file(file_path, as_attachment=True)
 
+    # --- CUSTOM INCOME SUMMARY WITH DATE RANGE ---
+    if msg.lower().startswith("รายได้รวม ") and "/" in msg:
+        try:
+            date_range = msg.strip()[10:].replace(" ", "")
+            day_part, month_part = date_range.split("/")
+            start_day, end_day = map(int, day_part.split("-"))
+            month = int(month_part)
+            year = today.year
+
+            start_date = datetime(year, month, start_day)
+            end_date = datetime(year, month, end_day)
+
+            df = pd.read_sql_query("SELECT * FROM records WHERE type='income'", conn)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[(df["user_id"] == user_id) & (df["date"] >= start_date) & (df["date"] <= end_date)]
+
+            if df.empty:
+                reply_text(reply_token, "📍 ไม่มีรายได้ในช่วงที่ระบุ")
+                return "no income", 200
+
+            summary = {
+                "รวม": df["amount"].sum(),
+                "อาหาร": df[df["item"].str.contains("อาหาร")]["amount"].sum(),
+                "เครื่องดื่ม": df[df["item"].str.contains("เครื่องดื่ม")]["amount"].sum(),
+                "โอน": df[df["item"].str.contains("โอน")]["amount"].sum(),
+                "เงินสด": df[df["item"].str.contains("เงินสด")]["amount"].sum(),
+                "เครดิต": df[df["item"].str.contains("เครดิต")]["amount"].sum()
+            }
+
+            def fmt(val):
+                return f"{val:,.0f}.0" if val % 1 else f"{val:,.0f}"
+
+            reply = [
+                f"📅 รายได้ช่วง {start_date.strftime('%d-%m-%Y')} ถึง {end_date.strftime('%d-%m-%Y')}",
+                f"💵 รายได้รวม: {fmt(summary['รวม'])} บาท",
+                f"🍟 รายได้อาหาร: {fmt(summary['อาหาร'])} บาท",
+                f"🍺 รายได้เครื่องดื่ม: {fmt(summary['เครื่องดื่ม'])} บาท",
+                "",
+                f"📌 โอน: {fmt(summary['โอน'])} บาท",
+                f"📌 เงินสด: {fmt(summary['เงินสด'])} บาท",
+                f"📌 เครดิต: {fmt(summary['เครดิต'])} บาท"
+            ]
+            reply_text(reply_token, "\n".join(reply))
+            return "custom income summary", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายได้รวม 1-6/06/2025")
+            return "format error", 200
+
     # --- PARSE RECORD ---
     lines = msg.strip().split("\n")
     records = []
@@ -103,9 +151,7 @@ def webhook():
 
     conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
     conn.commit()
-
-    # โหลดข้อมูลทั้งหมดในวันนี้เพื่อรวมรายจ่ายทั้งวัน
-    df_today = pd.read_sql_query("SELECT * FROM records WHERE user_id=? AND date=?", conn, params=(user_id, today_str))
+    df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
 
     if all(r[4] == "income" for r in records):
         summary = {
@@ -116,7 +162,7 @@ def webhook():
             "เงินสด": 0,
             "เครดิต": 0
         }
-        for _, item, amount, _, _, _ in df_today.itertuples(index=False):
+        for _, item, amount, _, _, _ in records:
             if "รวม" in item:
                 summary["รวม"] += amount
             elif "อาหาร" in item:
@@ -130,26 +176,27 @@ def webhook():
             elif "เครดิต" in item:
                 summary["เครดิต"] += amount
 
-        def format_amt(a):
-            return f"{a:,.1f}" if a % 1 else f"{int(a):,}"
+        def fmt(val):
+            return f"{val:,.0f}.0" if val % 1 else f"{val:,.0f}"
 
         reply = [
             f"📅 บันทึกวันที่ {today_display}",
-            f"💵 รายได้รวม: {format_amt(summary['รวม'])} บาท",
-            f"🍟 รายได้อาหาร: {format_amt(summary['อาหาร'])} บาท",
-            f"🍺 รายได้เครื่องดื่ม: {format_amt(summary['เครื่องดื่ม'])} บาท",
+            f"💵 รายได้รวม: {fmt(summary['รวม'])} บาท",
+            f"🍟 รายได้อาหาร: {fmt(summary['อาหาร'])} บาท",
+            f"🍺 รายได้เครื่องดื่ม: {fmt(summary['เครื่องดื่ม'])} บาท",
             "",
-            f"📌 โอน: {format_amt(summary['โอน'])} บาท",
-            f"📌 เงินสด: {format_amt(summary['เงินสด'])} บาท",
-            f"📌 เครดิต: {format_amt(summary['เครดิต'])} บาท"
+            f"📌 โอน: {fmt(summary['โอน'])} บาท",
+            f"📌 เงินสด: {fmt(summary['เงินสด'])} บาท",
+            f"📌 เครดิต: {fmt(summary['เครดิต'])} บาท"
         ]
         reply_text(reply_token, "\n".join(reply))
         return "OK", 200
     else:
-        df_exp = df_today[df_today["type"] == "expense"]
-        total = df_exp["amount"].sum()
+        # show all expenses for today (not just current message)
+        df_all = pd.read_sql_query("SELECT item, amount, category FROM records WHERE user_id=? AND date=? AND type='expense'", conn, params=(user_id, today_str))
+        total = df_all["amount"].sum()
         reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
-        for _, row in df_exp.iterrows():
+        for _, row in df_all.iterrows():
             if row["category"] != "-":
                 reply.append(f"- {row['item']}: {row['amount']:.0f} บาท ({row['category']})")
             else:
