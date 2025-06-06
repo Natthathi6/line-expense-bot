@@ -103,16 +103,15 @@ def webhook():
 
     conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
     conn.commit()
-    df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
 
     if all(r[4] == "income" for r in records):
         summary = {
-            "รวม": 0.0,
-            "อาหาร": 0.0,
-            "เครื่องดื่ม": 0.0,
-            "โอน": 0.0,
-            "เงินสด": 0.0,
-            "เครดิต": 0.0
+            "รวม": 0,
+            "อาหาร": 0,
+            "เครื่องดื่ม": 0,
+            "โอน": 0,
+            "เงินสด": 0,
+            "เครดิต": 0
         }
         for _, item, amount, _, _, _ in records:
             if "รวม" in item:
@@ -140,6 +139,7 @@ def webhook():
         reply_text(reply_token, "\n".join(reply))
         return "OK", 200
     else:
+        df = pd.read_sql_query("SELECT item, amount, category FROM records WHERE user_id=? AND date=? AND type='expense'", conn, params=(user_id, today_str))
         total = df["amount"].sum()
         reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
         for _, row in df.iterrows():
