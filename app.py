@@ -103,6 +103,7 @@ def webhook():
 
     conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
     conn.commit()
+    df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
 
     if all(r[4] == "income" for r in records):
         summary = {
@@ -126,20 +127,23 @@ def webhook():
                 summary["เงินสด"] += amount
             elif "เครดิต" in item:
                 summary["เครดิต"] += amount
+
+        def format_amt(amt):
+            return f"{amt:,.0f}" if amt.is_integer() else f"{amt:,.2f}"
+
         reply = [
             f"📅 บันทึกวันที่ {today_display}",
-            f"💵 รายได้รวม: {summary['รวม']:,} บาท",
-            f"🍟 รายได้อาหาร: {summary['อาหาร']:,} บาท",
-            f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,} บาท",
+            f"💵 รายได้รวม: {format_amt(summary['รวม'])} บาท",
+            f"🍟 รายได้อาหาร: {format_amt(summary['อาหาร'])} บาท",
+            f"🍺 รายได้เครื่องดื่ม: {format_amt(summary['เครื่องดื่ม'])} บาท",
             "",
-            f"📌 โอน: {summary['โอน']:,} บาท",
-            f"📌 เงินสด: {summary['เงินสด']:,} บาท",
-            f"📌 เครดิต: {summary['เครดิต']:,} บาท"
+            f"📌 โอน: {format_amt(summary['โอน'])} บาท",
+            f"📌 เงินสด: {format_amt(summary['เงินสด'])} บาท",
+            f"📌 เครดิต: {format_amt(summary['เครดิต'])} บาท"
         ]
         reply_text(reply_token, "\n".join(reply))
         return "OK", 200
     else:
-        df = pd.read_sql_query("SELECT item, amount, category FROM records WHERE user_id=? AND date=? AND type='expense'", conn, params=(user_id, today_str))
         total = df["amount"].sum()
         reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
         for _, row in df.iterrows():
