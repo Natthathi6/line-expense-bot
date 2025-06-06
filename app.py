@@ -1,3 +1,4 @@
+
 from flask import Flask, request, send_file
 import os
 import sqlite3
@@ -22,16 +23,13 @@ def reply_text(reply_token, text):
     }
     payload = {
         'replyToken': reply_token,
-        'messages': [{
-            'type': 'text',
-            'text': text
-        }]
+        'messages': [{'type': 'text', 'text': text}]
     }
     requests.post('https://api.line.me/v2/bot/message/reply', headers=headers, json=payload)
 
 @app.route("/")
 def index():
-    return "✅ LINE Expense Bot is running!"
+    return "✅ LINE Income/Expense Bot is running!"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -44,141 +42,177 @@ def webhook():
         return "ignored", 200
 
     conn = sqlite3.connect("runtime.db")
-    conn.execute("""CREATE TABLE IF NOT EXISTS expenses
-                    (user_id TEXT, item TEXT, amount REAL, category TEXT, date TEXT)""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS records (
+            user_id TEXT,
+            item TEXT,
+            amount REAL,
+            category TEXT,
+            type TEXT,
+            date TEXT
+        )
+    """)
 
     today = datetime.now()
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
     month_prefix = today.strftime('%Y-%m')
 
+    # --- EXPORT ---
     if msg.lower().strip() == "export":
         export_url = "https://line-expense-bot.onrender.com/export"
-        reply_text(reply_token, f"\U0001F4C1 ดาวน์โหลดรายจ่าย:\n{export_url}")
-        return "sent export link", 200
+        reply_text(reply_token, f"📁 ดาวน์โหลดข้อมูล:
+{export_url}")
+        return "export link sent", 200
 
-    if msg.lower().strip() == "clear":
-        conn.execute("DELETE FROM expenses WHERE user_id=?", (user_id,))
-        conn.commit()
-        reply_text(reply_token, "🧹 เคลียร์รายจ่ายทั้งหมดเรียบร้อยแล้ว")
-        return "cleared all", 200
-
-    if msg.lower().startswith("clear "):
+    # --- DELETE INCOME ---
+    if msg.lower().strip().startswith("del income "):
         try:
-            input_date = msg[6:].strip()
+            input_date = msg.strip()[11:]
             db_date = datetime.strptime(input_date, "%d-%m-%Y").strftime("%Y-%m-%d")
-            conn.execute("DELETE FROM expenses WHERE user_id=? AND date=?", (user_id, db_date))
+            conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type='income'", (user_id, db_date))
+            conn.commit()
+            reply_text(reply_token, f"🧹 ลบรายได้วันที่ {input_date} แล้ว")
+            return "income deleted", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: del income 02-06-2025")
+            return "invalid date", 200
+
+    # --- DELETE EXPENSE ---
+    if msg.lower().strip().startswith("del expense "):
+        try:
+            input_date = msg.strip()[12:]
+            db_date = datetime.strptime(input_date, "%d-%m-%Y").strftime("%Y-%m-%d")
+            conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type='expense'", (user_id, db_date))
             conn.commit()
             reply_text(reply_token, f"🧹 ลบรายจ่ายวันที่ {input_date} แล้ว")
-            return "cleared specific date", 200
+            return "expense deleted", 200
         except:
-            reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: clear 02-06-2025")
-            return "invalid clear date", 200
+            reply_text(reply_token, "❌ รูปแบบวันที่ไม่ถูกต้อง เช่น: del expense 02-06-2025")
+            return "invalid date", 200
 
-    if msg.lower().strip() == "weekly":
-        df = pd.read_sql_query("SELECT * FROM expenses", conn)
-        if df.empty:
-            reply_text(reply_token, "❌ ยังไม่มีข้อมูลรายจ่ายเลย")
-            return "no data", 200
-
+    # --- WEEKLY REPORT ---
+    if msg.lower().strip() == "weekly รายจ่าย":
+        df = pd.read_sql_query("SELECT * FROM records WHERE type='expense'", conn)
         df["date"] = pd.to_datetime(df["date"])
         latest_month = df["date"].dt.to_period("M").max()
         df = df[df["date"].dt.to_period("M") == latest_month]
+        df["week"] = df["date"].dt.day.apply(lambda d: f"Week {((d - 1) // 7) + 1}")
 
-        def classify_week(d):
-            if d.day <= 7:
-                return "Week 1 (1-7)"
-            elif d.day <= 14:
-                return "Week 2 (8-14)"
-            elif d.day <= 21:
-                return "Week 3 (15-21)"
-            else:
-                return "Week 4 (22-end)"
-
-        df["week"] = df["date"].apply(classify_week)
         df_user = df[df["user_id"] == user_id]
-
         if df_user.empty:
-            reply_text(reply_token, "❌ ยังไม่มีรายจ่ายของคุณในเดือนนี้เลย")
-            return "no data user", 200
+            reply_text(reply_token, "📍 ยังไม่มีรายจ่ายในเดือนนี้")
+            return "no data", 200
 
         summary = df_user.groupby("week")["amount"].sum()
         total = df_user["amount"].sum()
-        latest_month_str = df_user["date"].dt.strftime("%B %Y").iloc[0]
+        month_label = df_user["date"].dt.strftime("%B %Y").iloc[0]
         name = get_user_name(user_id)
 
-        lines = [f"📊 รายจ่ายเดือน {latest_month_str} ของ {name}"]
-        for week in ["Week 1 (1-7)", "Week 2 (8-14)", "Week 3 (15-21)", "Week 4 (22-end)"]:
+        lines = [f"📊 รายจ่ายเดือน {month_label} ของ {name}"]
+        for week in ["Week 1", "Week 2", "Week 3", "Week 4", "Week 5"]:
             baht = summary.get(week, 0)
             lines.append(f"• {week}: {baht:,.0f} บาท")
-        lines.append(f"\n💰 รวมทั้งเดือน: {total:,.0f} บาท")
+        lines.append(f"
+💰 รวมทั้งเดือน: {total:,.0f} บาท")
 
-        reply_text(reply_token, "\n".join(lines))
-        return "weekly ok", 200
+        reply_text(reply_token, "
+".join(lines))
+        return "weekly summary", 200
 
-    lines = msg.strip().split("\n")
+    # --- CUSTOM DATE INCOME SUMMARY ---
+    if msg.lower().startswith("รายได้รวม "):
+        try:
+            date_range = msg.strip()[10:].replace(" ", "")
+            d1, d2 = date_range.split("-")
+            d1 = datetime.strptime(d1 + "/2025", "%d/%m/%Y")
+            d2 = datetime.strptime(d2 + "/2025", "%d/%m/%Y")
+            d1_str, d2_str = d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
+
+            df = pd.read_sql_query("SELECT * FROM records WHERE type='income'", conn)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
+
+            if df.empty:
+                reply_text(reply_token, "📍 ไม่มีรายได้ในช่วงที่ระบุ")
+                return "no income", 200
+
+            total = df["amount"].sum()
+            by_cat = df.groupby("category")["amount"].sum()
+            by_type = df.groupby("item")["amount"].sum()
+
+            lines = [f"💵 รายได้ {d1.strftime('%d/%m')}–{d2.strftime('%d/%m')}"]
+            for cat, amt in by_cat.items():
+                lines.append(f"- รายได้{cat}: {amt:,.0f} บาท")
+            lines.append("")
+            for t, amt in by_type.items():
+                lines.append(f"• {t}: {amt:,.0f} บาท")
+            lines.append(f"
+💰 รวม: {total:,.0f} บาท")
+
+            reply_text(reply_token, "
+".join(lines))
+            return "income summary", 200
+        except Exception as e:
+            reply_text(reply_token, f"❌ รูปแบบผิด เช่น: รายได้รวม 1-5/06/2025")
+            return "parse error", 200
+
+    # --- PARSE NEW RECORDS ---
+    lines = msg.strip().split("
+")
     records = []
     for line in lines:
         try:
-            parts = line.rsplit(" ", 2)
-            if len(parts) == 3:
-                item, amount, category = parts
-            elif len(parts) == 2:
-                item, amount = parts
+            parts = line.rsplit(" ", 3)
+            if len(parts) == 4:
+                item, amount, category, dtype = parts
+            elif len(parts) == 3:
+                item, amount, dtype = parts
                 category = "-"
             else:
                 continue
+            dtype = dtype.lower()
+            if dtype not in ["รายจ่าย", "รายได้"]:
+                continue
             amount = float(amount)
-            records.append((user_id, item.strip(), amount, category.strip(), today_str))
+            records.append((user_id, item, amount, category, "expense" if dtype == "รายจ่าย" else "income", today_str))
         except:
             continue
 
     if not records:
-        reply_text(reply_token, "❌ รูปแบบไม่ถูกต้อง เช่น: ค่าน้ำ 120 ของใช้")
-        return "format error", 200
+        reply_text(reply_token, "❌ รูปแบบผิด เช่น: ค่าน้ำ 120 ของใช้ รายจ่าย")
+        return "bad format", 200
 
-    conn.executemany("INSERT INTO expenses VALUES (?, ?, ?, ?, ?)", records)
+    conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
     conn.commit()
 
-    rows = conn.execute(
-        "SELECT item, amount, category FROM expenses WHERE user_id=? AND date=?",
-        (user_id, today_str)).fetchall()
+    df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
+    summary = df.groupby(["type", "category"])["amount"].sum()
+    reply = [f"📅 รายการวันนี้ ({today_display})"]
+    for (t, c), a in summary.items():
+        label = "รายได้" if t == "income" else "รายจ่าย"
+        reply.append(f"• {label}{f'({c})' if c != '-' else ''}: {a:,.0f} บาท")
 
-    month_total = conn.execute(
-        "SELECT SUM(amount) FROM expenses WHERE user_id=? AND date LIKE ?",
-        (user_id, f"{month_prefix}-%")).fetchone()[0] or 0
-
-    conn.close()
-
-    total_today = sum(r[1] for r in rows)
-    lines = [f"📅 รายจ่ายวันนี้ ({today_display})"]
-    for r in rows:
-        if r[2] != "-":
-            lines.append(f"- {r[0]}: {r[1]:,.0f} บาท ({r[2]})")
-        else:
-            lines.append(f"- {r[0]}: {r[1]:,.0f} บาท")
-    lines.append(f"\n💸 รวมวันนี้: {total_today:,.0f} บาท")
-    lines.append(f"🗓 รวมเดือนนี้: {month_total:,.0f} บาท")
-
-    reply_text(reply_token, "\n".join(lines))
+    reply_text(reply_token, "
+".join(reply))
     return "OK", 200
 
 @app.route("/export", methods=["GET"])
 def export_excel():
     conn = sqlite3.connect("runtime.db")
-    rows = conn.execute("SELECT user_id, item, amount, category, date FROM expenses").fetchall()
+    rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
     conn.close()
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Expenses"
-    ws.append(["User", "Item", "Amount", "Category", "Date"])
-    for user_id, item, amount, category, date in rows:
+    ws.title = "Records"
+    ws.append(["User", "Item", "Amount", "Category", "Type", "Date"])
+    for user_id, item, amount, category, dtype, date in rows:
         user = get_user_name(user_id)
         show_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
-        ws.append([user, item, amount, category, show_date])
+        ws.append([user, item, amount, category, dtype, show_date])
 
-    file_path = "expenses_export.xlsx"
+    file_path = "records_export.xlsx"
     wb.save(file_path)
     return send_file(file_path, as_attachment=True)
 
