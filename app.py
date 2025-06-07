@@ -26,6 +26,9 @@ def reply_text(reply_token, text):
     }
     requests.post('https://api.line.me/v2/bot/message/reply', headers=headers, json=payload)
 
+def fmt(value):
+    return '{:,.2f}'.format(value).rstrip('0').rstrip('.') + ' บาท'
+
 @app.route("/")
 def index():
     return "✅ LINE Income/Expense Bot is running!"
@@ -60,65 +63,59 @@ def webhook():
     if msg.lower().strip() == "export":
         rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Records"
-        ws.append(["User", "Item", "Amount", "Category", "Type", "Date"])
+
+        ws_income = wb.active
+        ws_income.title = "Income"
+        ws_income.append(["User", "Item", "Amount", "Category", "Date"])
+
+        ws_expense = wb.create_sheet("Expense")
+        ws_expense.append(["User", "Item", "Amount", "Category", "Date"])
+
         for user_id, item, amount, category, dtype, date in rows:
             user = get_user_name(user_id)
             show_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
-            ws.append([user, item, amount, category, dtype, show_date])
+            if dtype == "income":
+                ws_income.append([user, item, amount, category, show_date])
+            else:
+                ws_expense.append([user, item, amount, category, show_date])
+
         file_path = "records_export.xlsx"
         wb.save(file_path)
         conn.close()
         return send_file(file_path, as_attachment=True)
 
-    # --- CUSTOM INCOME SUMMARY WITH DATE RANGE ---
-    if msg.lower().startswith("รายได้รวม ") and "/" in msg:
+    # --- SUMMARIZE BY DATE RANGE ---
+    if msg.startswith("รวมรายได้ ") or msg.startswith("รวมรายจ่าย "):
         try:
-            date_range = msg.strip()[10:].replace(" ", "")
-            day_part, month_part = date_range.split("/")
-            start_day, end_day = map(int, day_part.split("-"))
-            month = int(month_part)
-            year = today.year
+            is_income = "รายได้" in msg
+            date_range = msg.replace("รวมรายได้ ", "").replace("รวมรายจ่าย ", "").strip()
+            d1, d2 = date_range.split("-")
+            d1 = datetime.strptime(d1 + "/2025", "%d/%m/%Y")
+            d2 = datetime.strptime(d2 + "/2025", "%d/%m/%Y")
+            d1_str, d2_str = d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
 
-            start_date = datetime(year, month, start_day)
-            end_date = datetime(year, month, end_day)
-
-            df = pd.read_sql_query("SELECT * FROM records WHERE type='income'", conn)
+            df = pd.read_sql_query("SELECT * FROM records", conn)
             df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["user_id"] == user_id) & (df["date"] >= start_date) & (df["date"] <= end_date)]
+            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
+            df = df[df["type"] == ("income" if is_income else "expense")]
 
             if df.empty:
-                reply_text(reply_token, "📍 ไม่มีรายได้ในช่วงที่ระบุ")
-                return "no income", 200
+                reply_text(reply_token, "📍 ไม่มีข้อมูลในช่วงที่ระบุ")
+                return "no data", 200
 
-            summary = {
-                "รวม": df["amount"].sum(),
-                "อาหาร": df[df["item"].str.contains("อาหาร")]["amount"].sum(),
-                "เครื่องดื่ม": df[df["item"].str.contains("เครื่องดื่ม")]["amount"].sum(),
-                "โอน": df[df["item"].str.contains("โอน")]["amount"].sum(),
-                "เงินสด": df[df["item"].str.contains("เงินสด")]["amount"].sum(),
-                "เครดิต": df[df["item"].str.contains("เครดิต")]["amount"].sum()
-            }
+            total = df["amount"].sum()
+            reply = [f"📊 {'รายได้' if is_income else 'รายจ่าย'} {d1.strftime('%d/%m')}–{d2.strftime('%d/%m')} ({get_user_name(user_id)})"]
 
-            def fmt(val):
-                return f"{val:,.0f}.0" if val % 1 else f"{val:,.0f}"
+            for cat, amt in df.groupby("category")["amount"].sum().items():
+                label = f"{'💵 รายได้' if is_income else '💸 รายจ่าย'}{'' if cat == '-' else f'({cat})'}"
+                reply.append(f"{label}: {fmt(amt)}")
 
-            reply = [
-                f"📅 รายได้ช่วง {start_date.strftime('%d-%m-%Y')} ถึง {end_date.strftime('%d-%m-%Y')}",
-                f"💵 รายได้รวม: {fmt(summary['รวม'])} บาท",
-                f"🍟 รายได้อาหาร: {fmt(summary['อาหาร'])} บาท",
-                f"🍺 รายได้เครื่องดื่ม: {fmt(summary['เครื่องดื่ม'])} บาท",
-                "",
-                f"📌 โอน: {fmt(summary['โอน'])} บาท",
-                f"📌 เงินสด: {fmt(summary['เงินสด'])} บาท",
-                f"📌 เครดิต: {fmt(summary['เครดิต'])} บาท"
-            ]
+            reply.append(f"\n📌 รวมทั้งหมด: {fmt(total)}")
             reply_text(reply_token, "\n".join(reply))
-            return "custom income summary", 200
+            return "range summary", 200
         except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายได้รวม 1-6/06/2025")
-            return "format error", 200
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายได้ 1-6/06/2025")
+            return "parse error", 200
 
     # --- PARSE RECORD ---
     lines = msg.strip().split("\n")
@@ -132,12 +129,12 @@ def webhook():
                     type_ = "income"
                     category = "-"
                 else:
-                    item, amount, category = parts
+                    category = final
                     type_ = "expense"
             elif len(parts) == 2:
                 item, amount = parts
-                type_ = "expense"
                 category = "-"
+                type_ = "expense"
             else:
                 continue
             amount = float(amount.replace(",", ""))
@@ -175,33 +172,33 @@ def webhook():
                 summary["เงินสด"] += amount
             elif "เครดิต" in item:
                 summary["เครดิต"] += amount
-
-        def fmt(val):
-            return f"{val:,.0f}.0" if val % 1 else f"{val:,.0f}"
-
         reply = [
             f"📅 บันทึกวันที่ {today_display}",
-            f"💵 รายได้รวม: {fmt(summary['รวม'])} บาท",
-            f"🍟 รายได้อาหาร: {fmt(summary['อาหาร'])} บาท",
-            f"🍺 รายได้เครื่องดื่ม: {fmt(summary['เครื่องดื่ม'])} บาท",
+            f"💵 รายได้รวม: {fmt(summary['รวม'])}",
+            f"🍟 รายได้อาหาร: {fmt(summary['อาหาร'])}",
+            f"🍺 รายได้เครื่องดื่ม: {fmt(summary['เครื่องดื่ม'])}",
             "",
-            f"📌 โอน: {fmt(summary['โอน'])} บาท",
-            f"📌 เงินสด: {fmt(summary['เงินสด'])} บาท",
-            f"📌 เครดิต: {fmt(summary['เครดิต'])} บาท"
+            f"📌 โอน: {fmt(summary['โอน'])}",
+            f"📌 เงินสด: {fmt(summary['เงินสด'])}",
+            f"📌 เครดิต: {fmt(summary['เครดิต'])}"
         ]
         reply_text(reply_token, "\n".join(reply))
         return "OK", 200
     else:
-        # show all expenses for today (not just current message)
-        df_all = pd.read_sql_query("SELECT item, amount, category FROM records WHERE user_id=? AND date=? AND type='expense'", conn, params=(user_id, today_str))
-        total = df_all["amount"].sum()
+        total_today = conn.execute("SELECT SUM(amount) FROM records WHERE user_id=? AND date=? AND type='expense'", (user_id, today_str)).fetchone()[0] or 0
+        month_prefix = today.strftime('%Y-%m')
+        month_total = conn.execute("SELECT SUM(amount) FROM records WHERE user_id=? AND date LIKE ? AND type='expense'", (user_id, f"{month_prefix}-%")).fetchone()[0] or 0
+        today_rows = conn.execute("SELECT item, amount, category FROM records WHERE user_id=? AND date=? AND type='expense'", (user_id, today_str)).fetchall()
+
         reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
-        for _, row in df_all.iterrows():
-            if row["category"] != "-":
-                reply.append(f"- {row['item']}: {row['amount']:.0f} บาท ({row['category']})")
+        for r in today_rows:
+            item, amount, cat = r
+            if cat != "-":
+                reply.append(f"- {item}: {fmt(amount)} ({cat})")
             else:
-                reply.append(f"- {row['item']}: {row['amount']:.0f} บาท")
-        reply.append(f"\n💸 รวมวันนี้: {total:,.0f} บาท")
+                reply.append(f"- {item}: {fmt(amount)}")
+        reply.append(f"\n💸 รวมวันนี้: {fmt(total_today)}")
+        reply.append(f"🗓 รวมเดือนนี้: {fmt(month_total)}")
         reply_text(reply_token, "\n".join(reply))
         return "OK", 200
 
