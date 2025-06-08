@@ -56,7 +56,6 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
-    # --- EXPORT ---
     if msg.lower().strip() == "export":
         rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
         wb = Workbook()
@@ -78,7 +77,53 @@ def webhook():
         conn.close()
         return send_file(file_path, as_attachment=True)
 
-    # --- HANDLE NEW INCOME PATTERN ---
+    if msg.lower().startswith("รวมรายได้") or msg.lower().startswith("รวมรายจ่าย"):
+        try:
+            is_income = "รายได้" in msg
+            key = "รวมรายได้" if is_income else "รวมรายจ่าย"
+            _, range_str = msg.split(key)
+            start_str, end_str = range_str.strip().split("-")
+            if "/2025" not in start_str:
+                start_str += "/2025"
+            if "/2025" not in end_str:
+                end_str += "/2025"
+            d1 = datetime.strptime(start_str.strip(), "%d/%m/%Y")
+            d2 = datetime.strptime(end_str.strip(), "%d/%m/%Y")
+            df = pd.read_sql_query("SELECT * FROM records WHERE type=?", conn, params=(("income" if is_income else "expense"),))
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
+
+            if df.empty:
+                reply_text(reply_token, "📍 ไม่มีข้อมูลในช่วงที่ระบุ")
+                return "no data", 200
+
+            if is_income:
+                summary = df.groupby("item")["amount"].sum()
+                cat_summary = df.groupby("category")["amount"].sum()
+                lines = [f"📅 รายได้ {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}"]
+                lines.append(f"💵 รายได้รวม: {cat_summary.get('รวม', 0):,.0f} บาท")
+                lines.append(f"🍟 รายได้อาหาร: {cat_summary.get('อาหาร', 0):,.0f} บาท")
+                lines.append(f"🍺 รายได้เครื่องดื่ม: {cat_summary.get('เครื่องดื่ม', 0):,.0f} บาท\n")
+                lines.append(f"📌 โอน: {summary.get('แยกรายได้โอน', 0):,.0f} บาท")
+                lines.append(f"📌 เงินสด: {summary.get('แยกรายได้เงินสด', 0):,.0f} บาท")
+                lines.append(f"📌 เครดิต: {summary.get('แยกรายได้เครดิต', 0):,.0f} บาท")
+            else:
+                total = df["amount"].sum()
+                lines = [f"📅 รายจ่าย {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}"]
+                for _, row in df.iterrows():
+                    if row["category"] != "-":
+                        lines.append(f"- {row['item']}: {row['amount']:,.0f} บาท ({row['category']})")
+                    else:
+                        lines.append(f"- {row['item']}: {row['amount']:,.0f} บาท")
+                lines.append(f"\n💸 รวมทั้งหมด: {total:,.0f} บาท")
+
+            reply_text(reply_token, "\n".join(lines))
+            return "ok", 200
+        except Exception as e:
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายได้ 1-7/06/2025")
+            print(f"[ERROR] parsing failed: {e}")
+            return "fail", 200
+
     if msg.startswith("รายวันที่"):
         try:
             lines = msg.strip().split("\n")
@@ -114,7 +159,6 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายวันที่ 01/06/2025")
             return "invalid", 200
 
-    # --- DEFAULT: EXPENSES ---
     lines = msg.strip().split("\n")
     records = []
     for line in lines:
