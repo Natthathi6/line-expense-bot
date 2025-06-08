@@ -56,6 +56,7 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
+    # --- EXPORT ---
     if msg.lower().strip() == "export":
         rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
         wb = Workbook()
@@ -77,72 +78,7 @@ def webhook():
         conn.close()
         return send_file(file_path, as_attachment=True)
 
-    # รวมรายได้
-    if msg.lower().startswith("รวมรายได้"):
-        try:
-            _, range_str = msg.split("รวมรายได้")
-            d1, d2 = range_str.strip().split("-")
-            d1 = datetime.strptime(d1.strip() + "/2025", "%d/%m/%Y")
-            d2 = datetime.strptime(d2.strip() + "/2025", "%d/%m/%Y")
-            df = pd.read_sql_query("SELECT * FROM records WHERE type='income'", conn)
-            df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
-            if df.empty:
-                reply_text(reply_token, "📍 ไม่มีรายได้ในช่วงที่ระบุ")
-                return "no income", 200
-
-            summary = df.groupby("item")["amount"].sum()
-            cat_summary = df.groupby("category")["amount"].sum()
-            total = df["amount"].sum()
-            lines = [f"📅 รายได้ {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}"]
-            lines.append(f"💵 รายได้รวม: {cat_summary.get('รวม', 0):,.0f} บาท")
-            lines.append(f"🍟 รายได้อาหาร: {cat_summary.get('อาหาร', 0):,.0f} บาท")
-            lines.append(f"🍺 รายได้เครื่องดื่ม: {cat_summary.get('เครื่องดื่ม', 0):,.0f} บาท\n")
-            lines.append(f"📌 โอน: {summary.get('แยกรายได้โอน', 0):,.0f} บาท")
-            lines.append(f"📌 เงินสด: {summary.get('แยกรายได้เงินสด', 0):,.0f} บาท")
-            lines.append(f"📌 เครดิต: {summary.get('แยกรายได้เครดิต', 0):,.0f} บาท")
-            reply_text(reply_token, "\n".join(lines))
-            return "ok", 200
-        except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายได้ 1-7/06/2025")
-            return "fail", 200
-
-    # รวมรายจ่าย
-    if msg.lower().startswith("รวมรายจ่าย"):
-        try:
-            _, range_str = msg.split("รวมรายจ่าย")
-            d1, d2 = range_str.strip().split("-")
-            d1 = datetime.strptime(d1.strip() + "/2025", "%d/%m/%Y")
-            d2 = datetime.strptime(d2.strip() + "/2025", "%d/%m/%Y")
-            df = pd.read_sql_query("SELECT * FROM records WHERE type='expense'", conn)
-            df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
-            if df.empty:
-                reply_text(reply_token, "📍 ไม่มีรายจ่ายในช่วงที่ระบุ")
-                return "no expense", 200
-
-            total = df["amount"].sum()
-            reply_text(reply_token, f"📊 รายจ่าย {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}\n💸 รวมทั้งหมด: {total:,.0f} บาท")
-            return "ok", 200
-        except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายจ่าย 1-7/06/2025")
-            return "fail", 200
-
-    # ลบรายได้/รายจ่าย
-    if msg.startswith("ลบรายได้") or msg.startswith("ลบรายจ่าย"):
-        try:
-            parts = msg.strip().split()
-            d = datetime.strptime(parts[-1], "%d-%m-%Y").strftime("%Y-%m-%d")
-            t = "income" if "รายได้" in parts[0] else "expense"
-            conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type=?", (user_id, d, t))
-            conn.commit()
-            reply_text(reply_token, f"🧹 ลบ{'รายได้' if t == 'income' else 'รายจ่าย'}วันที่ {parts[-1]} แล้ว")
-            return "deleted", 200
-        except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: ลบรายได้ 02-06-2025")
-            return "invalid del", 200
-
-    # ตรวจจับการใส่รายได้แบบ pattern ใหม่
+    # --- HANDLE NEW INCOME PATTERN ---
     if msg.startswith("รายวันที่"):
         try:
             lines = msg.strip().split("\n")
@@ -178,7 +114,7 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายวันที่ 01/06/2025")
             return "invalid", 200
 
-    # รายจ่ายทั่วไป
+    # --- DEFAULT: EXPENSES ---
     lines = msg.strip().split("\n")
     records = []
     for line in lines:
