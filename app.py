@@ -9,11 +9,13 @@ import pandas as pd
 app = Flask(__name__)
 LINE_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 
+
 def get_user_name(user_id):
     return {
         "Uf2299afc5c6a03b031ac70eefc750259": "Choy",
         "U8a82b2393123c38a238144698e8fd19b": "Pupae"
     }.get(user_id, "คุณ")
+
 
 def reply_text(reply_token, text):
     headers = {
@@ -26,9 +28,11 @@ def reply_text(reply_token, text):
     }
     requests.post('https://api.line.me/v2/bot/message/reply', headers=headers, json=payload)
 
+
 @app.route("/")
 def index():
     return "✅ LINE Income/Expense Bot is running!"
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -56,150 +60,190 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
-    # EXPORT COMMAND
+    # --- EXPORT ---
     if msg.lower().strip() == "export":
         df = pd.read_sql_query("SELECT * FROM records", conn)
+        if df.empty:
+            reply_text(reply_token, "❌ ไม่มีข้อมูลในระบบ")
+            return "no data", 200
+
         wb = Workbook()
+        # รายรับ
+        ws1 = wb.active
+        ws1.title = "Income"
+        ws1.append(["User", "Item", "Amount", "Category", "Date"])
+        for row in df[df['type'] == 'income'].itertuples():
+            ws1.append([get_user_name(row.user_id), row.item, row.amount, row.category, row.date])
+        # รายจ่าย
+        ws2 = wb.create_sheet(title="Expense")
+        ws2.append(["User", "Item", "Amount", "Category", "Date"])
+        for row in df[df['type'] == 'expense'].itertuples():
+            ws2.append([get_user_name(row.user_id), row.item, row.amount, row.category, row.date])
 
-        for record_type in ['income', 'expense']:
-            ws = wb.create_sheet(title=record_type.capitalize())
-            ws.append(["User", "Item", "Amount", "Category", "Date"])
-            df_filtered = df[df["type"] == record_type]
-            for _, row in df_filtered.iterrows():
-                ws.append([
-                    get_user_name(row['user_id']), row['item'], row['amount'], row['category'],
-                    datetime.strptime(row['date'], "%Y-%m-%d").strftime("%d-%m-%Y")
-                ])
-
-        wb.remove(wb["Sheet"])
         file_path = "records_export.xlsx"
         wb.save(file_path)
         conn.close()
         return send_file(file_path, as_attachment=True)
 
-    # REMOVE RECORDS BY DATE
-    if msg.startswith("ลบรายจ่าย ") or msg.startswith("ลบรายได้ "):
+    # --- รวมรายได้ตามช่วงวันที่ ---
+    if msg.lower().startswith("รวมรายได้"):
         try:
-            dtype = "expense" if "รายจ่าย" in msg else "income"
-            input_date = msg.split()[1]
-            db_date = datetime.strptime(input_date, "%d-%m-%Y").strftime("%Y-%m-%d")
-            conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type=?", (user_id, db_date, dtype))
+            date_part = msg.strip().split(" ")[-1].replace(" ", "")
+            d1, d2 = date_part.split("-")
+            d1 = datetime.strptime(d1 + "/2025", "%d/%m/%Y")
+            d2 = datetime.strptime(d2 + "/2025", "%d/%m/%Y")
+            df = pd.read_sql_query("SELECT * FROM records WHERE type='income'", conn)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
+            if df.empty:
+                reply_text(reply_token, "❌ ไม่พบข้อมูลรายได้")
+                return "ok", 200
+            summary = df.groupby("item")["amount"].sum()
+            total = df["amount"].sum()
+            lines = [
+                f"📅 รายได้ {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}",
+                f"💵 รายได้รวม: {total:,.0f} บาท"
+            ]
+            for item, amt in summary.items():
+                lines.append(f"• {item}: {amt:,.0f} บาท")
+            reply_text(reply_token, "\n".join(lines))
+            return "ok", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบไม่ถูกต้อง เช่น: รวมรายได้ 1-7/06/2025")
+            return "bad", 200
+
+    # --- รวมรายจ่ายตามช่วงวันที่ ---
+    if msg.lower().startswith("รวมรายจ่าย"):
+        try:
+            date_part = msg.strip().split(" ")[-1].replace(" ", "")
+            d1, d2 = date_part.split("-")
+            d1 = datetime.strptime(d1 + "/2025", "%d/%m/%Y")
+            d2 = datetime.strptime(d2 + "/2025", "%d/%m/%Y")
+            df = pd.read_sql_query("SELECT * FROM records WHERE type='expense'", conn)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
+            if df.empty:
+                reply_text(reply_token, "❌ ไม่พบข้อมูลรายจ่าย")
+                return "ok", 200
+            total = df["amount"].sum()
+            lines = [
+                f"📅 รายจ่าย {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}",
+                f"💸 รายจ่ายรวม: {total:,.0f} บาท"
+            ]
+            reply_text(reply_token, "\n".join(lines))
+            return "ok", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบไม่ถูกต้อง เช่น: รวมรายจ่าย 1-7/06/2025")
+            return "bad", 200
+
+    # --- DELETE ---
+    if msg.lower().startswith("ลบรายได้ "):
+        date_text = msg[10:].strip()
+        try:
+            dt = datetime.strptime(date_text, "%d-%m-%Y").strftime("%Y-%m-%d")
+            conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type='income'", (user_id, dt))
             conn.commit()
-            reply_text(reply_token, f"🗑 ลบ{dtype}ของวันที่ {input_date} แล้ว")
+            reply_text(reply_token, f"🗑 ลบรายได้วันที่ {date_text} แล้ว")
+            return "deleted", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: ลบรายได้ 01-06-2025")
+            return "fail", 200
+
+    if msg.lower().startswith("ลบรายจ่าย "):
+        date_text = msg[11:].strip()
+        try:
+            dt = datetime.strptime(date_text, "%d-%m-%Y").strftime("%Y-%m-%d")
+            conn.execute("DELETE FROM records WHERE user_id=? AND date=? AND type='expense'", (user_id, dt))
+            conn.commit()
+            reply_text(reply_token, f"🗑 ลบรายจ่ายวันที่ {date_text} แล้ว")
             return "deleted", 200
         except:
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: ลบรายจ่าย 01-06-2025")
-            return "format error", 200
+            return "fail", 200
 
-    # SUM BY DATE RANGE
-    if msg.startswith("รวมรายได้ ") or msg.startswith("รวมรายจ่าย "):
+    # --- PARSE INCOME ---
+    if msg.startswith("รายวันที่"):
         try:
-            dtype = "income" if "รายได้" in msg else "expense"
-            _, date_range = msg.split(" ", 1)
-            d1, d2 = date_range.strip().split("-")
-            d1 = datetime.strptime(d1 + "/2025", "%d/%m/%Y")
-            d2 = datetime.strptime(d2 + "/2025", "%d/%m/%Y")
+            lines = msg.strip().split("\n")
+            date_str = lines[0].replace("รายวันที่", "").strip()
+            record_date = datetime.strptime(date_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+            display_date = datetime.strptime(record_date, "%Y-%m-%d").strftime("%d-%m-%Y")
+            income_items = []
+            for line in lines[1:]:
+                if "รายได้" in line:
+                    if "รวม" in line:
+                        income_items.append(("รายได้รวม", float(line.split(" ")[-1]), "รวม"))
+                    elif "อาหาร" in line:
+                        income_items.append(("รายได้อาหาร", float(line.split(" ")[-1]), "อาหาร"))
+                    elif "เครื่องดื่ม" in line:
+                        income_items.append(("รายได้เครื่องดื่ม", float(line.split(" ")[-1]), "เครื่องดื่ม"))
+                elif "แยกรายได้" in line:
+                    label = line.replace("แยกรายได้", "").split(" ")[0]
+                    amt = float(line.split(" ")[-1])
+                    income_items.append((f"แยกรายได้{label}", amt, label))
 
-            df = pd.read_sql_query("SELECT * FROM records WHERE user_id=? AND type=?", conn, params=(user_id, dtype))
-            df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["date"] >= d1) & (df["date"] <= d2)]
+            if not income_items:
+                reply_text(reply_token, "❌ ไม่พบข้อมูลรายได้ที่สามารถบันทึกได้")
+                return "fail", 200
 
-            if df.empty:
-                reply_text(reply_token, "📍 ไม่มีข้อมูลในช่วงเวลานี้")
-                return "no data", 200
+            for item, amt, cat in income_items:
+                conn.execute("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)",
+                             (user_id, item, amt, cat, "income", record_date))
+            conn.commit()
+            by_cat = {}
+            for item, amt, cat in income_items:
+                if cat not in by_cat:
+                    by_cat[cat] = 0
+                by_cat[cat] += amt
 
-            summary = df.groupby("category")["amount"].sum()
-            lines = [f"📅 {dtype.capitalize()} {d1.strftime('%d/%m')}–{d2.strftime('%d/%m')} ({get_user_name(user_id)})"]
-            for cat, amt in summary.items():
-                emoji = "💵" if dtype == "income" else "💸"
-                lines.append(f"{emoji} {cat if cat != '-' else 'ทั่วไป'}: {amt:,.0f} บาท")
-            total = df["amount"].sum()
-            lines.append(f"\n📊 รวม: {total:,.0f} บาท")
-            reply_text(reply_token, "\n".join(lines))
-            return "summary", 200
+            reply = [f"📅 บันทึกวันที่ {display_date}"]
+            reply.append(f"💵 รายได้รวม: {by_cat.get('รวม', 0):,} บาท")
+            reply.append(f"🍟 รายได้อาหาร: {by_cat.get('อาหาร', 0):,} บาท")
+            reply.append(f"🍺 รายได้เครื่องดื่ม: {by_cat.get('เครื่องดื่ม', 0):,} บาท\n")
+            reply.append(f"📌 โอน: {by_cat.get('โอน', 0):,} บาท")
+            reply.append(f"📌 เงินสด: {by_cat.get('เงินสด', 0):,} บาท")
+            reply.append(f"📌 เครดิต: {by_cat.get('เครดิต', 0):,} บาท")
+            reply_text(reply_token, "\n".join(reply))
+            return "ok", 200
         except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายได้ 1-6/06/2025")
-            return "error", 200
+            reply_text(reply_token, "❌ เกิดข้อผิดพลาดขณะบันทึกรายได้")
+            return "fail", 200
 
-    # RECORD DATA
+    # --- PARSE EXPENSE ---
     lines = msg.strip().split("\n")
     records = []
-    current_date = today_str
-
     for line in lines:
-        if line.startswith("รายวันที่"):
-            try:
-                current_date = datetime.strptime(line.replace("รายวันที่", "").strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
-            except:
+        try:
+            parts = line.rsplit(" ", 2)
+            if len(parts) == 3:
+                item, amount, category = parts
+            elif len(parts) == 2:
+                item, amount = parts
+                category = "-"
+            else:
                 continue
-        else:
-            try:
-                parts = line.strip().split()
-                amount = float(parts[-1].replace(",", ""))
-                text = " ".join(parts[:-1])
+            amount = float(amount.replace(",", ""))
+            records.append((user_id, item.strip(), amount, category.strip(), "expense", today_str))
+        except:
+            continue
 
-                if text.startswith("รายได้"):
-                    cat = text.replace("รายได้", "").strip() or "รวม"
-                    records.append((user_id, cat, amount, cat, "income", current_date))
-                elif text.startswith("แยกรายได้"):
-                    cat = text.replace("แยกรายได้", "").strip()
-                    records.append((user_id, cat, amount, cat, "income", current_date))
-                else:
-                    if len(parts) >= 3:
-                        item = " ".join(parts[:-2])
-                        category = parts[-2]
-                    else:
-                        item = " ".join(parts[:-1])
-                        category = "-"
-                    records.append((user_id, item, amount, category, "expense", current_date))
-            except:
-                continue
-
-    if not records:
-        reply_text(reply_token, "❌ ไม่พบข้อมูลที่สามารถบันทึกได้")
-        return "invalid", 200
-
-    conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
-    conn.commit()
-
-    df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
-
-    # REPLY
-    if all(df["type"] == "income"):
-        summary = {
-            "รวม": 0, "อาหาร": 0, "เครื่องดื่ม": 0,
-            "โอน": 0, "เงินสด": 0, "เครดิต": 0
-        }
-        for _, row in df.iterrows():
-            k = row["category"]
-            if k in summary:
-                summary[k] += row["amount"]
-        reply = [
-            f"📅 บันทึกวันที่ {datetime.strptime(current_date, '%Y-%m-%d').strftime('%d-%m-%Y')}",
-            f"💵 รายได้รวม: {summary['รวม']:,.0f} บาท",
-            f"🍟 รายได้อาหาร: {summary['อาหาร']:,.0f} บาท",
-            f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,.0f} บาท",
-            "",
-            f"📌 โอน: {summary['โอน']:,.0f} บาท",
-            f"📌 เงินสด: {summary['เงินสด']:,.0f} บาท",
-            f"📌 เครดิต: {summary['เครดิต']:,.0f} บาท"
-        ]
-        reply_text(reply_token, "\n".join(reply))
-    else:
-        this_date = df["date"].iloc[0]
-        df_all = pd.read_sql_query("SELECT * FROM records WHERE user_id=? AND type='expense'", conn, params=(user_id,))
-        df_all["date"] = pd.to_datetime(df_all["date"])
-        df_today = df_all[df_all["date"] == this_date]
-        df_month = df_all[df_all["date"].dt.strftime("%Y-%m") == this_date[:7]]
-
-        lines = [f"📅 รายจ่ายวันที่ {datetime.strptime(this_date, '%Y-%m-%d').strftime('%d-%m-%Y')}"]
-        for _, row in df_today.iterrows():
-            lines.append(f"- {row['item']}: {row['amount']:,.0f} บาท ({row['category']})" if row['category'] != "-" else f"- {row['item']}: {row['amount']:,.0f} บาท")
-        lines.append(f"\n💸 รวมวันนี้: {df_today['amount'].sum():,.0f} บาท")
-        lines.append(f"📊 รวมเดือนนี้: {df_month['amount'].sum():,.0f} บาท")
+    if records:
+        conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
+        conn.commit()
+        total = sum([r[2] for r in records])
+        lines = [f"📅 รายจ่ายวันนี้ ({today_display})"]
+        for r in records:
+            if r[3] != "-":
+                lines.append(f"- {r[1]}: {r[2]:,.0f} บาท ({r[3]})")
+            else:
+                lines.append(f"- {r[1]}: {r[2]:,.0f} บาท")
+        lines.append(f"\n💸 รวมวันนี้: {total:,.0f} บาท")
         reply_text(reply_token, "\n".join(lines))
+        return "ok", 200
 
-    return "OK", 200
+    reply_text(reply_token, "❌ ไม่พบข้อมูลที่สามารถบันทึกได้")
+    return "fail", 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
