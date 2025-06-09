@@ -60,6 +60,14 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
+    def parse_date(date_str):
+        for fmt in ["%d/%m/%Y", "%d %b %Y"]:
+            try:
+                return datetime.strptime(date_str.strip(), fmt)
+            except:
+                continue
+        return None
+
     # EXPORT
     if msg.lower().strip() == "export":
         rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
@@ -77,7 +85,7 @@ def webhook():
                 ws2.append([get_user_name(r[0]), r[1], r[2], r[3], datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")])
         file_path = "records_export.xlsx"
         wb.save(file_path)
-        reply_text(reply_token, f"📥 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
+        reply_text(reply_token, f"\U0001F4E5 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
         return "export ok", 200
 
     # ลบรายได้ / รายจ่าย ตามช่วงวันที่
@@ -85,25 +93,30 @@ def webhook():
         if msg.lower().startswith(keyword):
             try:
                 _, range_str = msg.split(keyword)
-                d1, d2 = range_str.strip().split("-")
-                d1 = datetime.strptime(d1.strip(), "%d %b %Y")
-                d2 = datetime.strptime(d2.strip(), "%d %b %Y")
-                conn.execute("DELETE FROM records WHERE user_id=? AND type=? AND date BETWEEN ? AND ?", (user_id, ttype, d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")))
+                d1_str, d2_str = range_str.strip().split("-")
+                d1 = parse_date(d1_str)
+                d2 = parse_date(d2_str)
+                if not d1 or not d2:
+                    raise ValueError("invalid date")
+                conn.execute("DELETE FROM records WHERE user_id=? AND type=? AND date BETWEEN ? AND ?",
+                             (user_id, ttype, d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")))
                 conn.commit()
-                reply_text(reply_token, f"🧹 ลบ{ttype}ระหว่าง {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')} แล้ว")
+                reply_text(reply_token, f"\U0001F9F9 ลบ{ttype}ระหว่าง {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')} แล้ว")
                 return "deleted", 200
             except:
                 reply_text(reply_token, f"❌ รูปแบบผิด เช่น: {keyword} 1-10 Jun 2025")
                 return "invalid del", 200
 
-    # รวมรายได้/รายจ่าย แบบใหม่รองรับ Jun
-    for keyword, ttype, icon in [("รวมรายได้", "income", "💵"), ("รวมรายจ่าย", "expense", "💸")]:
+    # รวมรายได้/รายจ่าย
+    for keyword, ttype, icon in [("รวมรายได้", "income", "\U0001F4B5"), ("รวมรายจ่าย", "expense", "\U0001F4B8")]:
         if msg.lower().startswith(keyword):
             try:
                 _, range_str = msg.split(keyword)
-                d1, d2 = range_str.strip().split("-")
-                d1 = datetime.strptime(d1.strip(), "%d %b %Y")
-                d2 = datetime.strptime(d2.strip(), "%d %b %Y")
+                d1_str, d2_str = range_str.strip().split("-")
+                d1 = parse_date(d1_str)
+                d2 = parse_date(d2_str)
+                if not d1 or not d2:
+                    raise ValueError("invalid date")
                 df = pd.read_sql_query(f"SELECT * FROM records WHERE type='{ttype}'", conn)
                 df["date"] = pd.to_datetime(df["date"])
                 df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
