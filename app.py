@@ -66,23 +66,45 @@ def index():
 def download_export_file():
     url = f"{SUPABASE_URL}/rest/v1/records?select=*"
     r = requests.get(url, headers=HEADERS)
+
+    print("📦 Fetch export records:", r.status_code)
     if r.status_code != 200:
+        print("❌ Error:", r.text)
         return "Error fetching records from Supabase", 500
+
     data = r.json()
+    print("✅ Records fetched:", len(data))
+
     wb = Workbook()
     ws1 = wb.active
     ws1.title = "Income"
     ws1.append(["User", "Item", "Amount", "Category", "Date"])
+
     for row in data:
         if row["type"] == "income":
-            ws1.append([get_user_name(row["user_id"]), row["item"], row["amount"], row["category"], row["date"]])
+            ws1.append([
+                get_user_name(row["user_id"]),
+                row["item"], row["amount"], row["category"], row["date"]
+            ])
+
     ws2 = wb.create_sheet(title="Expense")
     ws2.append(["User", "Item", "Amount", "Category", "Date"])
+
     for row in data:
         if row["type"] == "expense":
-            ws2.append([get_user_name(row["user_id"]), row["item"], row["amount"], row["category"], row["date"]])
+            ws2.append([
+                get_user_name(row["user_id"]),
+                row["item"], row["amount"], row["category"], row["date"]
+            ])
+
     file_path = "records_export.xlsx"
-    wb.save(file_path)
+    try:
+        wb.save(file_path)
+        print("💾 Excel saved:", file_path)
+    except Exception as e:
+        print("❌ Save error:", e)
+        return "Save failed", 500
+
     return send_file(file_path, as_attachment=True)
 
 @app.route("/webhook", methods=["POST"])
