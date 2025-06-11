@@ -25,6 +25,7 @@ def insert_record(user_id, item, amount, category, type_, date_str):
         "date": date_str
     }
     r = requests.post(url, headers=HEADERS, json=payload)
+    print("🔁 Insert Response:", r.status_code, r.text)  # ← log ดูว่า insert สำเร็จไหม
     return r.status_code == 201
 
 def fetch_records(user_id, type_, start_date, end_date):
