@@ -98,6 +98,85 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
+    # รายจ่ายทั่วไป
+    lines = msg.strip().split("\n")
+    records = []
+    for line in lines:
+        parts = line.rsplit(" ", 2)
+        if len(parts) == 3:
+            item, amount, category = parts
+        elif len(parts) == 2:
+            item, amount = parts
+            category = "-"
+        else:
+            continue
+        try:
+            amount = float(amount.replace(",", ""))
+            records.append((user_id, item.strip(), amount, category.strip(), "expense", today_str))
+        except:
+            continue
+
+    if records:
+        for r in records:
+            insert_record(*r)
+        total_today = sum([r[2] for r in records])
+        reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
+        for r in records:
+            if r[3] != "-":
+                reply.append(f"- {r[1]}: {r[2]:,.0f} บาท ({r[3]})")
+            else:
+                reply.append(f"- {r[1]}: {r[2]:,.0f} บาท")
+        reply.append(f"\n💸 รวมวันนี้: {total_today:,.0f} บาท")
+        reply_text(reply_token, "\n".join(reply))
+        return "ok", 200
+
+    # รายได้ประจำวันที่แบบ "รายวันที่ ..."
+    if msg.startswith("รายวันที่"):
+        try:
+            lines = msg.strip().split("\n")
+            date_str = lines[0].replace("รายวันที่", "").strip()
+            date_obj = datetime.strptime(date_str, "%d/%m/%Y")
+            date_iso = date_obj.strftime("%Y-%m-%d")
+            summary = {"อาหาร": 0, "เครื่องดื่ม": 0, "โอน": 0, "เงินสด": 0, "เครดิต": 0}
+            records = []
+            for line in lines[1:]:
+                for key in summary:
+                    if f"รายได้{key}" in line or f"แยกรายได้{key}" in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            try:
+                                amount = float(parts[1].replace(",", ""))
+                                summary[key] += amount
+                                records.append((user_id, parts[0], amount, key, "income", date_iso))
+                            except:
+                                continue
+            sum_category = summary["อาหาร"] + summary["เครื่องดื่ม"]
+            sum_channel = summary["โอน"] + summary["เงินสด"] + summary["เครดิต"]
+            if sum_category != sum_channel:
+                reply_text(reply_token, f"❌ ยอดรวมหมวดหมู่ไม่เท่ากับช่องทาง\nอาหาร+เครื่องดื่ม = {sum_category:,.0f}\nโอน+เงินสด+เครดิต = {sum_channel:,.0f}")
+                return "mismatch", 200
+            for r in records:
+                insert_record(*r)
+            reply = [
+                f"📅 บันทึกวันที่ {date_obj.strftime('%d-%m-%Y')}",
+                f"💵 รายได้รวม: {sum_category:,.0f} บาท",
+                f"🍟 รายได้อาหาร: {summary['อาหาร']:,.0f} บาท",
+                f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,.0f} บาท",
+                "",
+                f"📌 โอน: {summary['โอน']:,.0f} บาท",
+                f"📌 เงินสด: {summary['เงินสด']:,.0f} บาท",
+                f"📌 เครดิต: {summary['เครดิต']:,.0f} บาท"
+            ]
+            reply_text(reply_token, "\n".join(reply))
+            return "ok", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายวันที่ 01/06/2025")
+            return "invalid", 200
+
+    reply_text(reply_token, "❌ ไม่พบข้อมูลที่สามารถบันทึกได้")
+    return "fail", 200
+
+
     if msg.lower().strip() == "export":
         reply_text(reply_token, f"📥 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
         return "export ok", 200
