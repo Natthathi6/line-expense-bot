@@ -269,16 +269,22 @@ def webhook():
         except:
             continue
 
-    if records:
+        if records:
+        # 🔁 บันทึกรายการที่ส่งเข้ามา
         for r in records:
             insert_record(*r)
-        total_today = sum([r[2] for r in records])
+
+        # 📦 ดึงรายจ่ายของวันนั้นทั้งหมดจาก Supabase
+        existing_today = fetch_records(user_id, "expense", today_str, today_str)
+        total_today = sum([r["amount"] for r in existing_today])
+
+        # 🧾 ตอบกลับรายการทั้งหมดของวันนี้
         reply = [f"📅 รายจ่ายวันนี้ ({today_display})"]
-        for r in records:
-            if r[3] != "-":
-                reply.append(f"- {r[1]}: {r[2]:,.0f} บาท ({r[3]})")
+        for r in existing_today:
+            if r["category"] != "-":
+                reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท ({r['category']})")
             else:
-                reply.append(f"- {r[1]}: {r[2]:,.0f} บาท")
+                reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท")
         reply.append(f"\n💸 รวมวันนี้: {total_today:,.0f} บาท")
         reply_text(reply_token, "\n".join(reply))
         return "ok", 200
