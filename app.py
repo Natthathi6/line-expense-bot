@@ -143,6 +143,85 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายวันที่ 01/06/2025")
             return "invalid", 200
 
+    if msg.lower().startswith("รวมรายจ่าย"):
+        try:
+            _, range_str = msg.split("รวมรายจ่าย")
+            d1_str, d2_str = range_str.strip().split("-")
+            d1 = datetime.strptime(d1_str.strip(), "%d %b %Y")
+            d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
+            records = fetch_records(user_id, "expense", d1.strftime('%Y-%m-%d'), d2.strftime('%Y-%m-%d'))
+            if not records:
+                reply_text(reply_token, f"📍 ไม่มีรายจ่ายในช่วงที่ระบุ")
+                return "no data", 200
+            total = sum(r["amount"] for r in records)
+            reply = [f"💸 รวมรายจ่าย {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}: {total:,.0f} บาท"]
+            current_date = ""
+            for r in records:
+                if r["date"] != current_date:
+                    current_date = r["date"]
+                    reply.append(f"\n📅 {datetime.strptime(current_date, '%Y-%m-%d').strftime('%d/%m/%Y')}")
+                if r["category"] != "-":
+                    reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท ({r['category']})")
+                else:
+                    reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท")
+            reply_text(reply_token, "\n".join(reply))
+            return "ok", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายจ่าย 1 Jun 2025 - 10 Jun 2025")
+            return "invalid", 200
+
+    if msg.lower().startswith("รวมรายได้"):
+        try:
+            _, range_str = msg.split("รวมรายได้")
+            d1_str, d2_str = range_str.strip().split("-")
+            d1 = datetime.strptime(d1_str.strip(), "%d %b %Y")
+            d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
+            records = fetch_records(user_id, "income", d1.strftime('%Y-%m-%d'), d2.strftime('%Y-%m-%d'))
+            if not records:
+                reply_text(reply_token, f"📍 ไม่มีรายได้ในช่วงที่ระบุ")
+                return "no data", 200
+            summary = {"อาหาร": 0, "เครื่องดื่ม": 0, "โอน": 0, "เงินสด": 0, "เครดิต": 0}
+            for r in records:
+                if r["category"] in summary:
+                    summary[r["category"]] += r["amount"]
+            sum_category = summary["อาหาร"] + summary["เครื่องดื่ม"]
+            sum_channel = summary["โอน"] + summary["เงินสด"] + summary["เครดิต"]
+            reply = [
+                f"📅 รวมรายได้ {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}",
+                f"💵 รายได้รวม: {sum_category:,.0f} บาท",
+                f"🍟 รายได้อาหาร: {summary['อาหาร']:,.0f} บาท",
+                f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,.0f} บาท",
+                "",
+                f"📌 โอน: {summary['โอน']:,.0f} บาท",
+                f"📌 เงินสด: {summary['เงินสด']:,.0f} บาท",
+                f"📌 เครดิต: {summary['เครดิต']:,.0f} บาท"
+            ]
+            reply_text(reply_token, "\n".join(reply))
+            return "ok", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายได้ 1 Jun 2025 - 10 Jun 2025")
+            return "invalid", 200
+
+    for keyword, ttype in [("ลบรายได้", "income"), ("ลบรายจ่าย", "expense")]:
+        if msg.lower().startswith(keyword):
+            try:
+                range_str = msg[len(keyword):].strip()
+                if "-" in range_str:
+                    d1_str, d2_str = range_str.split("-")
+                    d1 = datetime.strptime(d1_str.strip(), "%d %b %Y")
+                    d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
+                else:
+                    d1 = d2 = datetime.strptime(range_str.strip(), "%d %b %Y")
+                deleted = delete_records(user_id, ttype, d1.strftime('%Y-%m-%d'), d2.strftime('%Y-%m-%d'))
+                if deleted:
+                    reply_text(reply_token, f"🧹 ลบ{ttype} {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')} แล้ว")
+                else:
+                    reply_text(reply_token, f"❌ ลบ{ttype} ไม่สำเร็จ")
+                return "deleted", 200
+            except:
+                reply_text(reply_token, f"❌ รูปแบบผิด เช่น: {keyword} 5 Jun 2025 หรือ {keyword} 1 Jun 2025 - 10 Jun 2025")
+                return "invalid del", 200
+
     lines = msg.strip().split("\n")
     records = []
     for line in lines:
@@ -176,88 +255,6 @@ def webhook():
 
     reply_text(reply_token, "❌ ไม่พบข้อมูลที่สามารถบันทึกได้")
     return "fail", 200
-    # ✅ รวมรายจ่าย
-    if msg.lower().startswith("รวมรายจ่าย"):
-        try:
-            _, range_str = msg.split("รวมรายจ่าย")
-            d1_str, d2_str = range_str.strip().split("-")
-            d1 = datetime.strptime(d1_str.strip(), "%d %b %Y")
-            d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
-            records = fetch_records(user_id, "expense", d1.strftime('%Y-%m-%d'), d2.strftime('%Y-%m-%d'))
-            if not records:
-                reply_text(reply_token, f"📍 ไม่มีรายจ่ายในช่วงที่ระบุ")
-                return "no data", 200
-            total = sum(r["amount"] for r in records)
-            reply = [f"💸 รวมรายจ่าย {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}: {total:,.0f} บาท"]
-            current_date = ""
-            for r in records:
-                if r["date"] != current_date:
-                    current_date = r["date"]
-                    reply.append(f"\n📅 {datetime.strptime(current_date, '%Y-%m-%d').strftime('%d/%m/%Y')}")
-                if r["category"] != "-":
-                    reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท ({r['category']})")
-                else:
-                    reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท")
-            reply_text(reply_token, "\n".join(reply))
-            return "ok", 200
-        except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายจ่าย 1 Jun 2025 - 10 Jun 2025")
-            return "invalid", 200
-
-    # ✅ รวมรายได้
-    if msg.lower().startswith("รวมรายได้"):
-        try:
-            _, range_str = msg.split("รวมรายได้")
-            d1_str, d2_str = range_str.strip().split("-")
-            d1 = datetime.strptime(d1_str.strip(), "%d %b %Y")
-            d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
-            records = fetch_records(user_id, "income", d1.strftime('%Y-%m-%d'), d2.strftime('%Y-%m-%d'))
-            if not records:
-                reply_text(reply_token, f"📍 ไม่มีรายได้ในช่วงที่ระบุ")
-                return "no data", 200
-            summary = {"อาหาร": 0, "เครื่องดื่ม": 0, "โอน": 0, "เงินสด": 0, "เครดิต": 0}
-            for r in records:
-                if r["category"] in summary:
-                    summary[r["category"]] += r["amount"]
-            sum_category = summary["อาหาร"] + summary["เครื่องดื่ม"]
-            sum_channel = summary["โอน"] + summary["เงินสด"] + summary["เครดิต"]
-            reply = [
-                f"📅 รวมรายได้ {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}",
-                f"💵 รายได้รวม: {sum_category:,.0f} บาท",
-                f"🍟 รายได้อาหาร: {summary['อาหาร']:,.0f} บาท",
-                f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,.0f} บาท",
-                "",
-                f"📌 โอน: {summary['โอน']:,.0f} บาท",
-                f"📌 เงินสด: {summary['เงินสด']:,.0f} บาท",
-                f"📌 เครดิต: {summary['เครดิต']:,.0f} บาท"
-            ]
-            reply_text(reply_token, "\n".join(reply))
-            return "ok", 200
-        except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายได้ 1 Jun 2025 - 10 Jun 2025")
-            return "invalid", 200
-
-    # ✅ ลบรายจ่าย/ลบรายได้
-    for keyword, ttype in [("ลบรายได้", "income"), ("ลบรายจ่าย", "expense")]:
-        if msg.lower().startswith(keyword):
-            try:
-                range_str = msg[len(keyword):].strip()
-                if "-" in range_str:
-                    d1_str, d2_str = range_str.split("-")
-                    d1 = datetime.strptime(d1_str.strip(), "%d %b %Y")
-                    d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
-                else:
-                    d1 = d2 = datetime.strptime(range_str.strip(), "%d %b %Y")
-                deleted = delete_records(user_id, ttype, d1.strftime('%Y-%m-%d'), d2.strftime('%Y-%m-%d'))
-                if deleted:
-                    reply_text(reply_token, f"🧹 ลบ{ttype} {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')} แล้ว")
-                else:
-                    reply_text(reply_token, f"❌ ลบ{ttype} ไม่สำเร็จ")
-                return "deleted", 200
-            except:
-                reply_text(reply_token, f"❌ รูปแบบผิด เช่น: {keyword} 5 Jun 2025 หรือ {keyword} 1 Jun 2025 - 10 Jun 2025")
-                return "invalid del", 200
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
