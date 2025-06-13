@@ -137,7 +137,7 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายได้ 1 Jun 2025 - 10 Jun 2025")
             return "invalid", 200
 
-    # รวมรายจ่ายปกติ
+    # รวมรายจ่ายแบบแจกแจงรายการ
     if msg.lower().startswith("รวมรายจ่าย"):
         try:
             _, range_str = msg.split("รวมรายจ่าย")
@@ -151,8 +151,17 @@ def webhook():
                 reply_text(reply_token, f"📍 ไม่มีรายจ่ายในช่วงที่ระบุ")
                 return "no data", 200
             total = df["amount"].sum()
-            reply_text(reply_token, f"💸 รวมรายจ่าย {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}: {total:,.0f} บาท")
-            return "sum expense ok", 200
+            reply = [f"💸 รวมรายจ่าย {d1.strftime('%d/%m')} - {d2.strftime('%d/%m')}: {total:,.0f} บาท"]
+            grouped = df.groupby("date")
+            for day, rows in grouped:
+                reply.append(f"\n📅 {day.strftime('%d/%m/%Y')}")
+                for _, r in rows.iterrows():
+                    if r["category"] != "-":
+                        reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท ({r['category']})")
+                    else:
+                        reply.append(f"- {r['item']}: {r['amount']:,.0f} บาท")
+            reply_text(reply_token, "\n".join(reply))
+            return "sum expense detail ok", 200
         except:
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายจ่าย 1 Jun 2025 - 10 Jun 2025")
             return "invalid", 200
