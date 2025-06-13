@@ -10,10 +10,10 @@ app = Flask(__name__)
 LINE_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 
 def get_user_name(user_id):
-    return {
-        "Uf2299afc5c6a03b031ac70eefc750259": "Choy",
-        "U8a82b2393123c38a238144698e8fd19b": "Pupae"
-    }.get(user_id, "คุณ")
+    user_map = {
+        "Uf2299afc5c6a03b031ac70eefc750259": "Choy"
+    }
+    return user_map.get(user_id, user_id)
 
 def reply_text(reply_token, text):
     headers = {
