@@ -171,7 +171,7 @@ def webhook():
     if msg.startswith("รายได้วันที่"):
         try:
             lines = msg.strip().split("\n")
-            date_str = lines[0].replace("รายวันที่", "").strip()
+            date_str = lines[0].replace("รายได้วันที่", "").strip()
             date_obj = datetime.strptime(date_str, "%d/%m/%Y")
             date_iso = date_obj.strftime("%Y-%m-%d")
             summary = {"อาหาร": 0, "เครื่องดื่ม": 0, "โอน": 0, "เงินสด": 0, "เครดิต": 0}
@@ -208,7 +208,7 @@ def webhook():
                 reply_text(reply_token, "\n".join(reply))
                 return "ok", 200
         except:
-            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายวันที่ 01/06/2025")
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายได้วันที่ 01/06/2025")
             return "invalid", 200
 
         # รายจ่ายระบุวันที่ เช่น "รายจ่ายวันที่ 1 Jun 2025\nกาแฟ 60 เครื่องดื่ม"
