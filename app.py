@@ -167,7 +167,7 @@ def webhook():
             return "invalid", 200
 
     # รายได้ประจำวันที่แยกรายการ
-    if msg.startswith("รายวันที่"):
+    if msg.startswith("รายได้วันที่"):
         try:
             lines = msg.strip().split("\n")
             date_str = lines[0].replace("รายวันที่", "").strip()
@@ -208,6 +208,46 @@ def webhook():
                 return "ok", 200
         except:
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายวันที่ 01/06/2025")
+            return "invalid", 200
+
+    # รายจ่ายทั่วไปแบบมีระบุวัน: "รายจ่ายวันที่ 13/06/2025\nน้ำแข็ง 500 เครื่องดื่ม"
+    if msg.startswith("รายจ่ายวันที่"):
+        try:
+            lines = msg.strip().split("\n")
+            date_str = lines[0].replace("รายจ่ายวันที่", "").strip()
+            date_obj = datetime.strptime(date_str, "%d/%m/%Y")
+            date_iso = date_obj.strftime("%Y-%m-%d")
+            records = []
+            for line in lines[1:]:
+                parts = line.rsplit(" ", 2)
+                if len(parts) == 3:
+                    item, amount, category = parts
+                elif len(parts) == 2:
+                    item, amount = parts
+                    category = "-"
+                else:
+                    continue
+                try:
+                    amount = float(amount.replace(",", ""))
+                    records.append((user_id, item.strip(), amount, category.strip(), "expense", date_iso))
+                except:
+                    continue
+            if records:
+                conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
+                conn.commit()
+                df = pd.DataFrame(records, columns=["user_id", "item", "amount", "category", "type", "date"])
+                total_today = df["amount"].sum()
+                reply = [f"📅 รายจ่ายวันที่ ({date_obj.strftime('%d-%m-%Y')})"]
+                for _, row in df.iterrows():
+                    if row["category"] != "-":
+                        reply.append(f"- {row['item']}: {row['amount']:,.0f} บาท ({row['category']})")
+                    else:
+                        reply.append(f"- {row['item']}: {row['amount']:,.0f} บาท")
+                reply.append(f"\n💸 รวมวันนี้: {total_today:,.0f} บาท")
+                reply_text(reply_token, "\n".join(reply))
+                return "ok", 200
+        except:
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายจ่ายวันที่ 13/06/2025\nน้ำแข็ง 500 เครื่องดื่ม")
             return "invalid", 200
 
     # รายจ่ายทั่วไป
