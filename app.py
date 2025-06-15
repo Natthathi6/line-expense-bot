@@ -13,7 +13,7 @@ def get_user_name(user_id):
     user_map = {
         "Uf2299afc5c6a03b031ac70eefc750259": "Choy",
         "U542df4ce137fedb29062de182f47a27f": "Eye" ,
-        "U2ba8c45280334de1674d1e3aae772289": "Tiger'
+        "U2ba8c45280334de1674d1e3aae772289": "Tiger" 
     }
     return user_map.get(user_id, user_id)
 
