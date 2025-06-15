@@ -12,7 +12,8 @@ LINE_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 def get_user_name(user_id):
     user_map = {
         "Uf2299afc5c6a03b031ac70eefc750259": "Choy",
-        "U542df4ce137fedb29062de182f47a27f": "Eye"
+        "U542df4ce137fedb29062de182f47a27f": "Eye" ,
+        "U2ba8c45280334de1674d1e3aae772289": "Tiger'
     }
     return user_map.get(user_id, user_id)
 
@@ -167,60 +168,49 @@ def webhook():
             reply_text(reply_token, "❌ รูปแบบผิด เช่น: รวมรายจ่าย 1 Jun 2025 - 10 Jun 2025")
             return "invalid", 200
 
-# รายได้ประจำวันที่แยกรายการ
-if msg.lower().startswith("รายได้วันที่"):
-    try:
-        lines = msg.strip().split("\n")
-        date_str = lines[0].replace("รายได้วันที่", "").strip()
-
-        # รองรับ 2 รูปแบบวันที่
+ # รายได้ประจำวันที่แยกรายการ
+    if msg.startswith("รายได้วันที่"):
         try:
-            date_obj = datetime.strptime(date_str, "%d %b %Y")  # เช่น 1 Jun 2025
+             lines = msg.strip().split("\n")
+            date_str = lines[0].replace("รายได้วันที่", "").strip()
+            date_obj = datetime.strptime(date_str, "%d %b %Y")
+            date_iso = date_obj.strftime("%Y-%m-%d")
+            summary = {"อาหาร": 0, "เครื่องดื่ม": 0, "โอน": 0, "เงินสด": 0, "เครดิต": 0}
+            records = []
+            for line in lines[1:]:
+                for key in summary:
+                    if f"รายได้{key}" in line or f"แยกรายได้{key}" in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            try:
+                                amount = float(parts[1].replace(",", ""))
+                                summary[key] += amount
+                                records.append((user_id, parts[0], amount, key, "income", date_iso))
+                            except:
+                                continue
+            sum_category = summary["อาหาร"] + summary["เครื่องดื่ม"]
+            sum_channel = summary["โอน"] + summary["เงินสด"] + summary["เครดิต"]
+            if sum_category != sum_channel:
+                reply_text(reply_token, f"❌ ยอดรวมหมวดหมู่ไม่เท่ากับช่องทาง\nอาหาร+เครื่องดื่ม = {sum_category:,.0f}\nโอน+เงินสด+เครดิต = {sum_channel:,.0f}")
+                return "mismatch", 200
+            if records:
+                conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
+                conn.commit()
+                reply = [
+                    f"📅 บันทึกวันที่ {date_obj.strftime('%d-%m-%Y')}",
+                    f"💵 รายได้รวม: {sum_category:,.0f} บาท",
+                    f"🍟 รายได้อาหาร: {summary['อาหาร']:,.0f} บาท",
+                    f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,.0f} บาท",
+                    "",
+                    f"📌 โอน: {summary['โอน']:,.0f} บาท",
+                    f"📌 เงินสด: {summary['เงินสด']:,.0f} บาท",
+                    f"📌 เครดิต: {summary['เครดิต']:,.0f} บาท"
+                ]
+                reply_text(reply_token, "\n".join(reply))
+                return "ok", 200
         except:
-            date_obj = datetime.strptime(date_str, "%d/%m/%Y")  # เช่น 01/06/2025
-
-        date_iso = date_obj.strftime("%Y-%m-%d")
-        summary = {"อาหาร": 0, "เครื่องดื่ม": 0, "โอน": 0, "เงินสด": 0, "เครดิต": 0}
-        records = []
-
-        for line in lines[1:]:
-            for key in summary:
-                if f"รายได้{key}" in line or f"แยกรายได้{key}" in line:
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        try:
-                            amount = float(parts[1].replace(",", ""))
-                            summary[key] += amount
-                            records.append((user_id, parts[0], amount, key, "income", date_iso))
-                        except:
-                            continue
-
-        sum_category = summary["อาหาร"] + summary["เครื่องดื่ม"]
-        sum_channel = summary["โอน"] + summary["เงินสด"] + summary["เครดิต"]
-
-        if sum_category != sum_channel:
-            reply_text(reply_token, f"❌ ยอดรวมหมวดหมู่ไม่เท่ากับช่องทาง\nอาหาร+เครื่องดื่ม = {sum_category:,.0f}\nโอน+เงินสด+เครดิต = {sum_channel:,.0f}")
-            return "mismatch", 200
-
-        if records:
-            conn.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", records)
-            conn.commit()
-            reply = [
-                f"📅 บันทึกวันที่ {date_obj.strftime('%d-%m-%Y')}",
-                f"💵 รายได้รวม: {sum_category:,.0f} บาท",
-                f"🍟 รายได้อาหาร: {summary['อาหาร']:,.0f} บาท",
-                f"🍺 รายได้เครื่องดื่ม: {summary['เครื่องดื่ม']:,.0f} บาท",
-                "",
-                f"📌 โอน: {summary['โอน']:,.0f} บาท",
-                f"📌 เงินสด: {summary['เงินสด']:,.0f} บาท",
-                f"📌 เครดิต: {summary['เครดิต']:,.0f} บาท"
-            ]
-            reply_text(reply_token, "\n".join(reply))
-            return "ok", 200
-
-    except:
-        reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายได้วันที่ 01/06/2025 หรือ 1 Jun 2025")
-        return "invalid", 200
+            reply_text(reply_token, "❌ รูปแบบผิด เช่น: รายได้วันที่ 1 Jun 2025")
+            return "invalid", 200
 
         # รายจ่ายระบุวันที่ เช่น "รายจ่ายวันที่ 1 Jun 2025\nกาแฟ 60 เครื่องดื่ม"
     if msg.startswith("รายจ่ายวันที่"):
