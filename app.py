@@ -11,7 +11,8 @@ LINE_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 
 def get_user_name(user_id):
     user_map = {
-        "Uf2299afc5c6a03b031ac70eefc750259": "Choy"
+        "Uf2299afc5c6a03b031ac70eefc750259": "Choy",
+        "U542df4ce137fedb29062de182f47a27f": "Eye"
     }
     return user_map.get(user_id, user_id)
 
