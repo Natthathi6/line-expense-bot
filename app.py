@@ -63,10 +63,10 @@ def webhook():
     today_display = today.strftime('%d-%m-%Y')
 
     if msg.lower().strip() == "export":
-        rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
-        wb = Workbook()
-        ws1 = wb.active
-        ws1.title = "Income Summary"
+    rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
+    wb = Workbook()
+    ws1 = wb.active
+    ws1.title = "Income Summary"
 
     # เขียนหัวตาราง
     ws1.append(["วันที่", "ผู้ใช้", "รายการ", "ยอดเงิน"])
@@ -78,7 +78,6 @@ def webhook():
 
     categories = ["อาหาร", "เครื่องดื่ม", "โอน", "เงินสด", "เครดิต"]
 
-    # group ตามวันที่ + user
     grouped = df.groupby(["date_str", "user_id"])
     for (date_str, uid), group in grouped:
         sums = {cat: group[group["category"] == cat]["amount"].sum() for cat in categories}
@@ -87,16 +86,14 @@ def webhook():
         for cat in categories:
             ws1.append([date_str, get_user_name(uid), cat, f"{sums[cat]:,.0f}"])
 
-    # สร้างชีทรายจ่ายตามเดิม
+    # ชีทรายจ่าย
     ws2 = wb.create_sheet(title="Expense")
     ws2.append(["User", "Item", "Amount", "Category", "Date"])
     for r in rows:
         if r[4] == "expense":
             ws2.append([
                 get_user_name(r[0]),
-                r[1],
-                r[2],
-                r[3],
+                r[1], r[2], r[3],
                 datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")
             ])
 
