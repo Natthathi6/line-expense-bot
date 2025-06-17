@@ -62,32 +62,71 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
-    if msg.lower().strip() == "export":
-        rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
-        wb = Workbook()
-        ws1 = wb.active
-        ws1.title = "Income"
-        ws1.append(["วันที่", "ผู้ใช้", "รายได้รวม (บาท)"])
+from openpyxl.chart import BarChart, Reference
 
-        df = pd.DataFrame(rows, columns=["user_id", "item", "amount", "category", "type", "date"])
-        df = df[df["type"] == "income"]
-        df["date"] = pd.to_datetime(df["date"])
-        df["date_str"] = df["date"].dt.strftime("%d-%m-%Y")
+if msg.lower().strip() == "export":
+    rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
+    wb = Workbook()
+    ws1 = wb.active
+    ws1.title = "Income Summary"
 
-        grouped = df.groupby(["date_str", "user_id"])["amount"].sum().reset_index()
-        for _, row in grouped.iterrows():
-            ws1.append([row["date_str"], get_user_name(row["user_id"]), f"{row['amount']:,.0f}"])
+    # เขียนหัวตาราง
+    ws1.append(["วันที่", "ผู้ใช้", "รวม", "อาหาร", "เครื่องดื่ม", "โอน", "เงินสด", "เครดิต"])
 
-        ws2 = wb.create_sheet(title="Expense")
-        ws2.append(["User", "Item", "Amount", "Category", "Date"])
-        for r in rows:
-            if r[4] == "expense":
-                ws2.append([get_user_name(r[0]), r[1], r[2], r[3], datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")])
+    df = pd.DataFrame(rows, columns=["user_id", "item", "amount", "category", "type", "date"])
+    df = df[df["type"] == "income"]
+    df["date"] = pd.to_datetime(df["date"])
+    df["date_str"] = df["date"].dt.strftime("%d-%m-%Y")
 
-        file_path = "records_export.xlsx"
-        wb.save(file_path)
-        reply_text(reply_token, f"📥 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
-        return "export ok", 200
+    categories = ["อาหาร", "เครื่องดื่ม", "โอน", "เงินสด", "เครดิต"]
+    grouped = df.groupby(["date_str", "user_id"])
+
+    for (date_str, uid), group in grouped:
+        sums = {cat: group[group["category"] == cat]["amount"].sum() for cat in categories}
+        total = sums["อาหาร"] + sums["เครื่องดื่ม"]
+        ws1.append([
+            date_str,
+            get_user_name(uid),
+            total,
+            sums["อาหาร"],
+            sums["เครื่องดื่ม"],
+            sums["โอน"],
+            sums["เงินสด"],
+            sums["เครดิต"]
+        ])
+
+    # เพิ่มกราฟแท่งด้านล่าง (เริ่มจากแถวที่ 2 ถึงแถวสุดท้าย)
+    max_row = ws1.max_row
+    chart = BarChart()
+    chart.title = "รวมรายได้ต่อวัน"
+    chart.y_axis.title = "ยอดรวม (บาท)"
+    chart.x_axis.title = "วันที่/ชื่อผู้ใช้"
+    chart.width = 20
+    chart.height = 8
+
+    data = Reference(ws1, min_col=3, max_col=3, min_row=1, max_row=max_row)
+    cats = Reference(ws1, min_col=1, max_col=2, min_row=2, max_row=max_row)
+    chart.add_data(data, titles_from_data=True)
+    chart.set_categories(cats)
+
+    # วางกราฟห่างจากตารางเล็กน้อย
+    ws1.add_chart(chart, f"A{max_row + 3}")
+
+    # ทำชีทรายจ่ายตามเดิม
+    ws2 = wb.create_sheet(title="Expense")
+    ws2.append(["User", "Item", "Amount", "Category", "Date"])
+    for r in rows:
+        if r[4] == "expense":
+            ws2.append([
+                get_user_name(r[0]),
+                r[1], r[2], r[3],
+                datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")
+            ])
+
+    file_path = "records_export.xlsx"
+    wb.save(file_path)
+    reply_text(reply_token, f"📥 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
+    return "export ok", 200
 
     # ลบข้อมูลตามช่วงวัน
     for keyword, ttype in [("ลบรายได้", "income"), ("ลบรายจ่าย", "expense")]:
