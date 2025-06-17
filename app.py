@@ -62,11 +62,11 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
-if msg.lower().strip() == "export":
-    rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
-    wb = Workbook()
-    ws1 = wb.active
-    ws1.title = "Income Summary"
+    if msg.lower().strip() == "export":
+        rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "Income Summary"
 
     # เขียนหัวตาราง
     ws1.append(["วันที่", "ผู้ใช้", "รายการ", "ยอดเงิน"])
