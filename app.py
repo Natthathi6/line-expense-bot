@@ -62,7 +62,7 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
-        if msg.lower().strip() == "export":
+    if msg.lower().strip() == "export":
         rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
         wb = Workbook()
         ws1 = wb.active
@@ -86,7 +86,7 @@ def webhook():
             for cat in categories:
                 ws1.append([date_str, get_user_name(uid), cat, f"{sums[cat]:,.0f}"])
 
-        # ชีทรายจ่าย
+        # สร้างชีทรายจ่าย
         ws2 = wb.create_sheet(title="Expense")
         ws2.append(["User", "Item", "Amount", "Category", "Date"])
         for r in rows:
