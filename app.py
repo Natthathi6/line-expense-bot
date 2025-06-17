@@ -62,7 +62,7 @@ def webhook():
     today_str = today.strftime('%Y-%m-%d')
     today_display = today.strftime('%d-%m-%Y')
 
-    if msg.lower().strip() == "export":
+if msg.lower().strip() == "export":
     rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
     wb = Workbook()
     ws1 = wb.active
@@ -92,7 +92,13 @@ def webhook():
     ws2.append(["User", "Item", "Amount", "Category", "Date"])
     for r in rows:
         if r[4] == "expense":
-            ws2.append([get_user_name(r[0]), r[1], r[2], r[3], datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")])
+            ws2.append([
+                get_user_name(r[0]),
+                r[1],
+                r[2],
+                r[3],
+                datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")
+            ])
 
     file_path = "records_export.xlsx"
     wb.save(file_path)
