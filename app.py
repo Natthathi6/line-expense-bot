@@ -66,25 +66,24 @@ def webhook():
         rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
         wb = Workbook()
         ws1 = wb.active
-ws1.title = "Income"
-ws1.append(["วันที่", "ผู้ใช้", "รายได้รวม (บาท)"])
+        ws1.title = "Income"
+        ws1.append(["วันที่", "ผู้ใช้", "รายได้รวม (บาท)"])
 
-# สร้าง DataFrame เพื่อรวมยอด
-df = pd.DataFrame(rows, columns=["user_id", "item", "amount", "category", "type", "date"])
-df = df[df["type"] == "income"]
-df["date"] = pd.to_datetime(df["date"])
-df["date_str"] = df["date"].dt.strftime("%d-%m-%Y")
+        df = pd.DataFrame(rows, columns=["user_id", "item", "amount", "category", "type", "date"])
+        df = df[df["type"] == "income"]
+        df["date"] = pd.to_datetime(df["date"])
+        df["date_str"] = df["date"].dt.strftime("%d-%m-%Y")
 
-# รวมรายได้ต่อวันต่อ user
-grouped = df.groupby(["date_str", "user_id"])["amount"].sum().reset_index()
+        grouped = df.groupby(["date_str", "user_id"])["amount"].sum().reset_index()
+        for _, row in grouped.iterrows():
+            ws1.append([row["date_str"], get_user_name(row["user_id"]), f"{row['amount']:,.0f}"])
 
-for _, row in grouped.iterrows():
-    ws1.append([row["date_str"], get_user_name(row["user_id"]), f"{row['amount']:,.0f}"])
         ws2 = wb.create_sheet(title="Expense")
         ws2.append(["User", "Item", "Amount", "Category", "Date"])
         for r in rows:
             if r[4] == "expense":
                 ws2.append([get_user_name(r[0]), r[1], r[2], r[3], datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")])
+
         file_path = "records_export.xlsx"
         wb.save(file_path)
         reply_text(reply_token, f"📥 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
