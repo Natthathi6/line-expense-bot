@@ -63,49 +63,41 @@ def webhook():
     today_display = today.strftime('%d-%m-%Y')
 
     if msg.lower().strip() == "export":
-        rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
-        wb = Workbook()
-        ws1 = wb.active
-        ws1.title = "Income Summary"
+    rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
+    wb = Workbook()
+    ws1 = wb.active
+    ws1.title = "Income Summary"
 
-        # เขียนหัวตาราง
-        ws1.append(["วันที่", "ผู้ใช้", "รวม", "อาหาร", "เครื่องดื่ม", "โอน", "เงินสด", "เครดิต"])
+    # เขียนหัวตาราง
+    ws1.append(["วันที่", "ผู้ใช้", "รายการ", "ยอดเงิน"])
 
-        df = pd.DataFrame(rows, columns=["user_id", "item", "amount", "category", "type", "date"])
-        df = df[df["type"] == "income"]
-        df["date"] = pd.to_datetime(df["date"])
-        df["date_str"] = df["date"].dt.strftime("%d-%m-%Y")
+    df = pd.DataFrame(rows, columns=["user_id", "item", "amount", "category", "type", "date"])
+    df = df[df["type"] == "income"]
+    df["date"] = pd.to_datetime(df["date"])
+    df["date_str"] = df["date"].dt.strftime("%d-%m-%Y")
 
-        categories = ["อาหาร", "เครื่องดื่ม", "โอน", "เงินสด", "เครดิต"]
+    categories = ["อาหาร", "เครื่องดื่ม", "โอน", "เงินสด", "เครดิต"]
 
-        # group ตาม user + วันที่
-        grouped = df.groupby(["date_str", "user_id"])
+    # group ตามวันที่ + user
+    grouped = df.groupby(["date_str", "user_id"])
+    for (date_str, uid), group in grouped:
+        sums = {cat: group[group["category"] == cat]["amount"].sum() for cat in categories}
+        total = sums["อาหาร"] + sums["เครื่องดื่ม"]
+        ws1.append([date_str, get_user_name(uid), "รวม", f"{total:,.0f}"])
+        for cat in categories:
+            ws1.append([date_str, get_user_name(uid), cat, f"{sums[cat]:,.0f}"])
 
-        for (date_str, uid), group in grouped:
-            sums = {cat: group[group["category"] == cat]["amount"].sum() for cat in categories}
-            total = sums["อาหาร"] + sums["เครื่องดื่ม"]
-            ws1.append([
-                date_str,
-                get_user_name(uid),
-                f"{total:,.0f}",
-                f"{sums['อาหาร']:,.0f}",
-                f"{sums['เครื่องดื่ม']:,.0f}",
-                f"{sums['โอน']:,.0f}",
-                f"{sums['เงินสด']:,.0f}",
-                f"{sums['เครดิต']:,.0f}"
-            ])
+    # สร้างชีทรายจ่ายตามเดิม
+    ws2 = wb.create_sheet(title="Expense")
+    ws2.append(["User", "Item", "Amount", "Category", "Date"])
+    for r in rows:
+        if r[4] == "expense":
+            ws2.append([get_user_name(r[0]), r[1], r[2], r[3], datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")])
 
-        # สร้างชีทรายจ่ายตามปกติ
-        ws2 = wb.create_sheet(title="Expense")
-        ws2.append(["User", "Item", "Amount", "Category", "Date"])
-        for r in rows:
-            if r[4] == "expense":
-                ws2.append([get_user_name(r[0]), r[1], r[2], r[3], datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")])
-
-        file_path = "records_export.xlsx"
-        wb.save(file_path)
-        reply_text(reply_token, f"📥 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
-        return "export ok", 200
+    file_path = "records_export.xlsx"
+    wb.save(file_path)
+    reply_text(reply_token, f"📥 ไฟล์ export เสร็จแล้ว ดาวน์โหลดได้ที่:\nhttps://{request.host}/records_export.xlsx")
+    return "export ok", 200
         
     # ลบข้อมูลตามช่วงวัน
     for keyword, ttype in [("ลบรายได้", "income"), ("ลบรายจ่าย", "expense")]:
