@@ -66,11 +66,20 @@ def webhook():
         rows = conn.execute("SELECT user_id, item, amount, category, type, date FROM records").fetchall()
         wb = Workbook()
         ws1 = wb.active
-        ws1.title = "Income"
-        ws1.append(["User", "Item", "Amount", "Category", "Date"])
-        for r in rows:
-            if r[4] == "income":
-                ws1.append([get_user_name(r[0]), r[1], r[2], r[3], datetime.strptime(r[5], "%Y-%m-%d").strftime("%d-%m-%Y")])
+ws1.title = "Income"
+ws1.append(["วันที่", "ผู้ใช้", "รายได้รวม (บาท)"])
+
+# สร้าง DataFrame เพื่อรวมยอด
+df = pd.DataFrame(rows, columns=["user_id", "item", "amount", "category", "type", "date"])
+df = df[df["type"] == "income"]
+df["date"] = pd.to_datetime(df["date"])
+df["date_str"] = df["date"].dt.strftime("%d-%m-%Y")
+
+# รวมรายได้ต่อวันต่อ user
+grouped = df.groupby(["date_str", "user_id"])["amount"].sum().reset_index()
+
+for _, row in grouped.iterrows():
+    ws1.append([row["date_str"], get_user_name(row["user_id"]), f"{row['amount']:,.0f}"])
         ws2 = wb.create_sheet(title="Expense")
         ws2.append(["User", "Item", "Amount", "Category", "Date"])
         for r in rows:
@@ -110,7 +119,7 @@ def webhook():
             d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
             df = pd.read_sql_query(f"SELECT * FROM records WHERE type='income'", conn)
             df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
+            df = df[(df["date"] >= d1) & (df["date"] <= d2)]
             if df.empty:
                 reply_text(reply_token, f"📍 ไม่มีรายได้ในช่วงที่ระบุ")
                 return "no data", 200
