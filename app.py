@@ -110,7 +110,7 @@ def webhook():
             d2 = datetime.strptime(d2_str.strip(), "%d %b %Y")
             df = pd.read_sql_query(f"SELECT * FROM records WHERE type='income'", conn)
             df["date"] = pd.to_datetime(df["date"])
-            df = df[(df["user_id"] == user_id) & (df["date"] >= d1) & (df["date"] <= d2)]
+            df = df[(df["date"] >= d1) & (df["date"] <= d2)]
             if df.empty:
                 reply_text(reply_token, f"📍 ไม่มีรายได้ในช่วงที่ระบุ")
                 return "no data", 200
